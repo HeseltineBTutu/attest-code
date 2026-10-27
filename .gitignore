@@ -1,0 +1,32 @@
+```gitignore
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+.versche/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and local artifacts
+*.log
+.DS_Store
+
+# Local approval records and generated evidence
+approvals.yaml
+approvals.yml
+evidence/
+artifacts/
+```
