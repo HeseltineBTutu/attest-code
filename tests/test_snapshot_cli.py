@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import py_compile
 import shutil
 import subprocess
 import sys
@@ -201,3 +202,60 @@ def test_startup_preflight_precedes_origin_diagnostics(staged_repo: Any, tmp_pat
     assert proc.returncode == 3
     assert "exists at the repository root" in proc.stderr
     assert "outside the repository tree" not in proc.stderr
+
+
+def _plant_matching_pyc(source: Path) -> Path:
+    """Write hostile bytecode whose header matches the clean source stats.
+
+    A same-size `!=`/`==` flip in the demo guard inverts authorization while
+    keeping the file size identical; the restored clean file keeps the
+    hostile compile's mtime, so timestamp validation accepts the planted
+    bytecode for the clean source.
+    """
+    tag = sys.implementation.cache_tag
+    cached = source.parent / "__pycache__" / f"{source.stem}.{tag}.pyc"
+    cached.parent.mkdir(exist_ok=True)
+    original = source.read_bytes()
+    hostile = original.replace(b'if principal != "admin":', b'if principal == "admin":')
+    assert hostile != original and len(hostile) == len(original)
+    fixed_time = 1700000000
+    source.write_bytes(hostile)
+    os.utime(source, (fixed_time, fixed_time))
+    py_compile.compile(str(source), cfile=str(cached), doraise=True)
+    source.write_bytes(original)
+    os.utime(source, (fixed_time, fixed_time))
+    return cached
+
+
+def test_planted_bytecode_cache_does_not_poison_workers(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    _plant_matching_pyc(staged_repo.src / "apps" / "demo_api.py")
+    proc = _verify(staged_repo, "--target", "repaired")
+    assert proc.returncode == 0, proc.stderr
+    assert "verdict: PASSED" in proc.stdout
+
+
+def test_planted_bytecode_control_proves_poison(staged_repo: Any) -> None:
+    _plant_matching_pyc(staged_repo.src / "apps" / "demo_api.py")
+    code = (
+        "from fastapi.testclient import TestClient;"
+        "from apps.demo_api import ADMIN_TOKEN, create_repaired_app;"
+        "client = TestClient(create_repaired_app());"
+        "response = client.get("
+        "'/admin/users', headers={'Authorization': f'Bearer {ADMIN_TOKEN}'});"
+        "print(response.status_code)"
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(staged_repo.src)
+    env.pop("PYTHONPYCACHEPREFIX", None)
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=staged_repo.root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "403"

@@ -73,7 +73,7 @@
   same-named tracked entries, and dotted imports through them are not used
   by the verifier. The before/after fingerprint covers the same scan, so a
   file planted mid-run still flips the verdict to INCONCLUSIVE — but a
-  plant-and-revert fully inside the run window remains invisible (see the
+  plant-and-revert fully inside one attempt remains invisible (see the
   guarantees section below).
 - Module-origin binding (F1 fix): `attest verify` proves the executed
   verifier/demo packages (`attest_spec`, `attest_core`, `apps`, `examples`)
@@ -87,7 +87,24 @@
   (including `..` escapes) are rejected.
 - A fingerprint (HEAD id plus relevant status) is taken before and after the
   run; a mismatch overrides any verdict with INCONCLUSIVE and is flagged in
-  the output (`snapshot-changed: true`).
+  the output (`snapshot-changed: true`). Each attempt is additionally
+  fingerprinted before and after it runs: drift that persists past any
+  attempt boundary fails that attempt as an infrastructure failure (with
+  the drift recorded in its evidence), which yields INCONCLUSIVE under the
+  unchanged verdict policy. Dirt planted and reverted strictly inside one
+  attempt remains invisible — sampling a live worktree cannot bind the
+  exact bytes a worker executed. True per-attempt byte identity needs
+  immutable execution (verifying an exported snapshot rather than the live
+  tree), which is future work, not claimed here.
+- Worker bytecode caches are isolated per run: `attest verify` points
+  `PYTHONPYCACHEPREFIX` at a fresh temporary directory before the first
+  child spawns, so workers neither read bytecode planted in the tree's
+  `__pycache__/` directories nor write caches into the tree. The prefix is
+  execution hygiene, not identity: its random path is deliberately excluded
+  from the configuration digest. The parent's own imports happen before
+  this takes effect, so parent-side cache poisoning stays inside the
+  trusted-launch boundary (a hostile tree must not be verified via an
+  interpreter that already imported from it).
 
 ## Runtime and environment binding (F2 fix)
 
@@ -168,7 +185,9 @@ Keep these four distinctions separate when reading any verdict:
   trusted value, not authenticity: nobody has signed anything, and a
   reproduced digest never proves who produced a run. Before/after checks
   also leave a time-of-check/time-of-use race: a change planted and
-  fully reverted inside the run window is invisible by construction.
+  fully reverted strictly inside one attempt is invisible by construction.
+  The revision OID names the commit the tree matched at the sampled
+  instants; it is not a hash of the bytes each worker executed.
 
 ## Bounded execution
 

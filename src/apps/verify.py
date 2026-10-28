@@ -9,8 +9,12 @@ detected after the run overrides any verdict with INCONCLUSIVE.
 
 from __future__ import annotations
 
+import atexit
 import functools
+import os
+import shutil
 import sys
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TextIO
@@ -45,6 +49,15 @@ SNAPSHOT_CHANGED_REASON = "source snapshot changed during verification"
 
 class VerifyError(Exception):
     """Raised when verification cannot authoritatively proceed."""
+
+
+class SnapshotDriftError(Exception):
+    """Raised when the source snapshot drifts during an attempt.
+
+    Handled by the orchestrator's generic per-attempt path as an
+    infrastructure failure (evidence preserved), so drift can only yield
+    INCONCLUSIVE, never FAILED or PASSED.
+    """
 
 
 def apply_snapshot_override(report: VerificationReport, invariant: Invariant) -> VerificationReport:
@@ -110,6 +123,12 @@ def run_verify(
     # child process (the origin probe) can execute them. Nothing above this
     # line spawns a Python interpreter; keep it that way.
     check_root_startup_modules(root)
+    # Isolate worker bytecode caches in a fresh directory: workers must
+    # neither read bytecode planted in the tree nor write caches into it.
+    # The parent's own imports precede this (see trusted-launch boundary).
+    cache_dir = tempfile.mkdtemp(prefix="attest-pycache-")
+    os.environ["PYTHONPYCACHEPREFIX"] = cache_dir
+    atexit.register(shutil.rmtree, cache_dir, True)
     invariant_file = require_within_root(invariant_file, root, "invariant file")
     approvals_file = require_within_root(approvals_file, root, "approvals file")
     invariant = select_invariant(load_definitions(invariant_file), invariant_id)
@@ -127,8 +146,17 @@ def run_verify(
     scope = tuple(invariant.scope)
 
     def run_checks() -> AttemptReport:
+        # Per-attempt drift detection against the clean run baseline: dirt
+        # that persists past any attempt boundary fails that attempt as an
+        # infrastructure failure. Dirt planted and reverted strictly inside
+        # one attempt remains invisible (see security-model.md).
+        if fingerprint(root) != before:
+            raise SnapshotDriftError(SNAPSHOT_CHANGED_REASON)
         worker = functools.partial(run_target_attempt, target, scope)
-        return run_bounded(worker, timeout_seconds)
+        report = run_bounded(worker, timeout_seconds)
+        if fingerprint(root) != before:
+            raise SnapshotDriftError(SNAPSHOT_CHANGED_REASON)
+        return report
 
     report = run_verification(
         invariant=invariant,

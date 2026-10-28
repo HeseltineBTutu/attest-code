@@ -6,10 +6,17 @@ import io
 import json
 import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from apps.review import run_review
+from apps.verify import run_verify
+from attest_core.bounds import run_bounded as real_run_bounded
+from attest_core.verification import AttemptReport
+from attest_spec import AttemptOutcome, Verdict
 
 INVARIANT_YAML = """\
 - id: AUTH-ADMIN-001
@@ -165,3 +172,49 @@ def test_inputs_outside_repo_are_refused(staged_repo: Any, tmp_path: Path) -> No
     )
     assert proc.returncode == 3
     assert "outside the repository tree" in proc.stderr
+
+
+def test_mid_run_drift_fails_attempts_inconclusive(
+    staged_repo: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drift persisting past an attempt boundary fails closed (real git + workers).
+
+    Two narrow test doubles: origin binding is covered by dedicated F1 e2e
+    tests and cannot match a staged root from this process by construction,
+    so it is stubbed; the worker call is wrapped (never replaced) to
+    interleave genuine worktree dirt. The drift check, git, and workers run.
+    """
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    monkeypatch.setattr("apps.verify.verify_code_origin", lambda *args, **kwargs: None)
+    calls = 0
+
+    def dirtying_run_bounded(
+        func: Callable[[], AttemptReport], timeout_seconds: float
+    ) -> AttemptReport:
+        nonlocal calls
+        calls += 1
+        (staged_repo.src / "apps" / "demo_api.py").write_text("# drifted\n", encoding="utf-8")
+        return real_run_bounded(func, timeout_seconds)
+
+    monkeypatch.setattr("apps.verify.run_bounded", dirtying_run_bounded)
+    stdout = io.StringIO()
+    verdict = run_verify(
+        invariant_file=staged_repo.invariant,
+        approvals_file=staged_repo.approvals,
+        invariant_id=None,
+        revision="HEAD",
+        repo=staged_repo.root,
+        target="repaired",
+        timeout_seconds=60.0,
+        output_format="json",
+        stdout=stdout,
+    )
+    assert verdict is Verdict.INCONCLUSIVE
+    assert calls == 1
+    payload = json.loads(stdout.getvalue())
+    assert payload["verdict"] == "INCONCLUSIVE"
+    assert payload["snapshot_changed"] is True
+    outcomes = [attempt["outcome"] for attempt in payload["attempts"]]
+    assert outcomes == [AttemptOutcome.INFRA_FAILURE.value] * 3
+    details = [attempt["detail"] for attempt in payload["attempts"]]
+    assert any("source snapshot changed during verification" in detail for detail in details)
