@@ -1,56 +1,91 @@
 """Bounded worker execution: real wall-clock deadlines per attempt.
 
-Each attempt runs in a spawned subprocess. A worker that exceeds its
-deadline is terminated; a worker that dies is reported as crashed. Both
-classify as infrastructure failures (INCONCLUSIVE), never as violations.
+Each attempt runs in a spawned subprocess under the S1 sandbox policy:
+minimal environment, controlled working directory, per-attempt
+bytecode cache, and a bounded JSON result file instead of pickle IPC. A
+worker that exceeds its deadline is terminated; a worker that dies, or
+whose result is missing or invalid, is reported as crashed or failed.
+All classify as infrastructure failures (INCONCLUSIVE), never as
+violations.
 
-This is execution bounding, not a security sandbox: the worker runs with
-the operator's privileges and must only execute verifier-owned check code.
-The worker callable must be picklable (a top-level function reference).
+This is execution bounding plus exposure reduction, not a security
+sandbox: the worker runs with the operator's privileges and must only
+execute verifier-owned check code. The worker callable must be
+picklable (a top-level function reference); only parent-to-child
+pickling remains, which is trusted-direction data.
 """
 
 from __future__ import annotations
 
-import multiprocessing
+import contextlib
 from collections.abc import Callable
-from multiprocessing.connection import Connection
 from pathlib import Path
 
+from attest_core.envelope import (
+    MAX_DETAIL_CHARS,
+    MAX_RESULT_BYTES,
+    SandboxEnvelopeError,
+    decode_attempt_report,
+    encode_attempt_report,
+    encode_error,
+    read_result_file,
+    write_result_file,
+)
 from attest_core.origin import OriginError, check_origins, report_worker_origins
+from attest_core.sandbox import (
+    SandboxWorkdir,
+    build_worker_environ,
+    cleanup_workdir,
+    enter_worker_context,
+    failure_suffix,
+    guarded_spawn,
+    prepare_workdir,
+    register_cleanup,
+    terminate_worker,
+)
 from attest_core.verification import AttemptReport
 from attest_spec import AttemptOutcome
 
-_TERMINATE_GRACE_SECONDS = 10
+
+def _clip(text: str) -> str:
+    """Bound worker-side diagnostic text with an explicit truncation marker."""
+    if len(text) > MAX_DETAIL_CHARS:
+        return text[:MAX_DETAIL_CHARS] + "[truncated]"
+    return text
+
+
+def _finish(paths: SandboxWorkdir, payload: str) -> None:
+    if len(payload.encode("utf-8")) > MAX_RESULT_BYTES:
+        payload = encode_error(f"worker result exceeds {MAX_RESULT_BYTES} bytes")
+    write_result_file(paths.result, payload)
 
 
 def _worker_main(
-    func: Callable[[], AttemptReport], conn: Connection, snapshot_root: Path | None
+    func: Callable[[], AttemptReport], paths: SandboxWorkdir, snapshot_root: Path | None
 ) -> None:
+    enter_worker_context(paths)
     try:
         if snapshot_root is not None:
             try:
                 check_origins(report_worker_origins(), snapshot_root, actor="attempt worker")
             except OriginError as exc:
-                conn.send(
-                    (
-                        "ok",
-                        AttemptReport(
-                            AttemptOutcome.INFRA_FAILURE,
-                            (),
-                            f"worker origin self-check failed: {exc}",
-                        ),
-                    )
-                )
+                _finish(paths, encode_error(_clip(f"worker origin self-check failed: {exc}")))
                 return
-        conn.send(("ok", func()))
+        try:
+            report = func()
+        except Exception as exc:
+            _finish(paths, encode_error(_clip(f"{type(exc).__name__}: {exc}")))
+            return
+        _finish(paths, encode_attempt_report(report))
     except Exception as exc:
-        conn.send(("error", f"{type(exc).__name__}: {exc}"))
-    finally:
-        conn.close()
+        with contextlib.suppress(OSError):
+            _finish(paths, encode_error(f"worker result failed: {type(exc).__name__}"))
 
 
-def _crashed(exitcode: object) -> AttemptReport:
-    return AttemptReport(AttemptOutcome.INFRA_FAILURE, (), f"worker crashed (exit code {exitcode})")
+def _crashed(exitcode: object, suffix: str) -> AttemptReport:
+    return AttemptReport(
+        AttemptOutcome.INFRA_FAILURE, (), f"worker crashed (exit code {exitcode}){suffix}"
+    )
 
 
 def run_bounded(
@@ -61,43 +96,39 @@ def run_bounded(
 ) -> AttemptReport:
     """Run one attempt with a wall-clock deadline, terminating on expiry.
 
-    When a snapshot root is given, the worker verifies its own first-party
-    origins resolve beneath it before running checks; anything else fails
-    the attempt as an infrastructure failure.
+    The worker starts with a minimal environment and controlled working
+    directory, writes a bounded JSON result file, and is supervised to
+    completion. When a snapshot root is given, the worker verifies its
+    own first-party origins resolve beneath it before running checks;
+    anything else fails the attempt as an infrastructure failure.
     """
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
-    ctx = multiprocessing.get_context("spawn")
-    parent_conn, child_conn = ctx.Pipe(duplex=False)
-    proc = ctx.Process(target=_worker_main, args=(func, child_conn, snapshot_root), daemon=True)
-    proc.start()
-    child_conn.close()
+    paths = prepare_workdir()
+    register_cleanup(paths.root)
     try:
-        if parent_conn.poll(timeout_seconds):
-            try:
-                kind, payload = parent_conn.recv()
-            except EOFError:
-                proc.join(_TERMINATE_GRACE_SECONDS)
-                return _crashed(proc.exitcode)
-            proc.join(_TERMINATE_GRACE_SECONDS)
-            if kind == "ok" and isinstance(payload, AttemptReport):
-                return payload
-            return AttemptReport(AttemptOutcome.INFRA_FAILURE, (), f"worker error: {payload}")
-        if proc.is_alive():
-            proc.terminate()
-            proc.join(_TERMINATE_GRACE_SECONDS)
+        env = build_worker_environ({"PYTHONPYCACHEPREFIX": str(paths.pycache)})
+        with guarded_spawn(
+            _worker_main, (func, paths, snapshot_root), environ=env, cwd=paths.root
+        ) as proc:
+            proc.join(timeout_seconds)
             if proc.is_alive():
-                proc.kill()
-                proc.join(_TERMINATE_GRACE_SECONDS)
-            return AttemptReport(
-                AttemptOutcome.INFRA_FAILURE,
-                (),
-                f"worker exceeded {timeout_seconds:g}s deadline and was terminated",
-            )
-        proc.join(_TERMINATE_GRACE_SECONDS)
-        return _crashed(proc.exitcode)
+                terminate_worker(proc)
+                return AttemptReport(
+                    AttemptOutcome.INFRA_FAILURE,
+                    (),
+                    f"worker exceeded {timeout_seconds:g}s deadline and was terminated"
+                    + failure_suffix(paths),
+                )
+            if proc.exitcode != 0:
+                return _crashed(proc.exitcode, failure_suffix(paths))
+            try:
+                return decode_attempt_report(read_result_file(paths.result))
+            except SandboxEnvelopeError as exc:
+                return AttemptReport(
+                    AttemptOutcome.INFRA_FAILURE,
+                    (),
+                    f"worker result invalid: {exc}" + failure_suffix(paths),
+                )
     finally:
-        parent_conn.close()
-        if proc.is_alive():
-            proc.kill()
-            proc.join(_TERMINATE_GRACE_SECONDS)
+        cleanup_workdir(paths.root)

@@ -14,16 +14,33 @@ proves the loaded files live inside the attested snapshot.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import importlib.util
-import multiprocessing
 import sys
 from collections.abc import Mapping
-from multiprocessing.connection import Connection
 from pathlib import Path
 from typing import Any
 
+from attest_core.envelope import (
+    SandboxEnvelopeError,
+    decode_origins_envelope,
+    encode_error,
+    encode_origins,
+    read_result_file,
+    write_result_file,
+)
 from attest_core.git import RELEVANT_PATHS, GitError, repo_root
+from attest_core.sandbox import (
+    SandboxWorkdir,
+    build_worker_environ,
+    cleanup_workdir,
+    enter_worker_context,
+    guarded_spawn,
+    prepare_workdir,
+    register_cleanup,
+    terminate_worker,
+)
 
 EXPECTED_PACKAGES = ("attest_spec", "attest_core", "apps", "examples", "integrations")
 """First-party packages whose origin must be inside the attested tree."""
@@ -37,8 +54,6 @@ Such entries are exempt from live-root stripping so spawned workers keep
 their third-party imports (notably with an in-repository `.venv`, whose
 `site-packages` resolves under the live root).
 """
-
-_PROBE_GRACE_SECONDS = 10
 
 
 class OriginError(Exception):
@@ -119,13 +134,13 @@ def report_worker_origins() -> dict[str, str | None]:
     return {name: _spec_origin(name) for name in EXPECTED_PACKAGES}
 
 
-def _probe_main(conn: Connection) -> None:
+def _probe_main(paths: SandboxWorkdir) -> None:
+    enter_worker_context(paths)
     try:
-        conn.send(("ok", report_worker_origins()))
+        write_result_file(paths.result, encode_origins(report_worker_origins()))
     except Exception as exc:
-        conn.send(("error", f"{type(exc).__name__}: {exc}"))
-    finally:
-        conn.close()
+        with contextlib.suppress(OSError):
+            write_result_file(paths.result, encode_error(f"{type(exc).__name__}: {exc}"))
 
 
 def _validate_probe_payload(payload: Any) -> dict[str, str | None]:
@@ -142,38 +157,25 @@ def probe_worker_origins(timeout_seconds: float) -> dict[str, str | None]:
     """Ask a spawned worker where it resolves the expected packages."""
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
-    ctx = multiprocessing.get_context("spawn")
-    parent_conn, child_conn = ctx.Pipe(duplex=False)
-    proc = ctx.Process(target=_probe_main, args=(child_conn,), daemon=True)
-    proc.start()
-    child_conn.close()
+    paths = prepare_workdir()
+    register_cleanup(paths.root)
     try:
-        if parent_conn.poll(timeout_seconds):
-            try:
-                kind, payload = parent_conn.recv()
-            except EOFError:
-                proc.join(_PROBE_GRACE_SECONDS)
-                raise OriginError(
-                    f"worker origin probe crashed (exit code {proc.exitcode})"
-                ) from None
-            proc.join(_PROBE_GRACE_SECONDS)
-            if kind != "ok":
-                raise OriginError(f"worker origin probe failed: {payload}")
-            return _validate_probe_payload(payload)
-        if proc.is_alive():
-            proc.terminate()
-            proc.join(_PROBE_GRACE_SECONDS)
+        env = build_worker_environ()
+        with guarded_spawn(_probe_main, (paths,), environ=env, cwd=paths.root) as proc:
+            proc.join(timeout_seconds)
             if proc.is_alive():
-                proc.kill()
-                proc.join(_PROBE_GRACE_SECONDS)
-            raise OriginError("worker origin probe timed out")
-        proc.join(_PROBE_GRACE_SECONDS)
-        raise OriginError(f"worker origin probe crashed (exit code {proc.exitcode})")
+                terminate_worker(proc)
+                raise OriginError("worker origin probe timed out")
+            if proc.exitcode != 0:
+                raise OriginError(f"worker origin probe crashed (exit code {proc.exitcode})")
+            try:
+                return _validate_probe_payload(
+                    decode_origins_envelope(read_result_file(paths.result))
+                )
+            except SandboxEnvelopeError as exc:
+                raise OriginError(f"worker origin probe failed: {exc}") from exc
     finally:
-        parent_conn.close()
-        if proc.is_alive():
-            proc.kill()
-            proc.join(_PROBE_GRACE_SECONDS)
+        cleanup_workdir(paths.root)
 
 
 def verify_code_origin(root: Path, timeout_seconds: float) -> OriginReport:

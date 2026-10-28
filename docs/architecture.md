@@ -25,7 +25,12 @@
   validation (a pre-spawn preflight plus an already-imported tripwire), plus
   deterministic runtime settings (interpreter, `PYTHONPATH`, installed
   versions, manifest hashes) bound into the configuration digest.
-- `attest_core.sandbox` (planned): execution isolation and resource limits.
+- `attest_core.sandbox` (implemented S1): worker exposure reduction —
+  minimal worker environment, controlled working directory, per-attempt
+  bytecode caches, and bounded diagnostic capture. Not OS-enforced
+  isolation (see security-model.md).
+- `attest_core.envelope` (implemented S1): versioned JSON worker-result
+  protocol with strict schema validation, replacing pickle IPC.
 - `apps.cli` (implemented): argparse entry point mapping outcomes to exit
   codes; no CLI framework dependency.
 - `apps.approvals` (implemented): YAML approval store keyed by id/version.
@@ -63,7 +68,9 @@ in main dependencies as a provisional hackathon simplification.
    instead of verdicting when it is absent or stale.
 6. Checks compare declared scope against the app's registered routes, then
    run 401/403/200 probes per endpoint over a fresh test client, each
-   attempt in a bounded worker subprocess.
+   attempt in a sandboxed worker subprocess (minimal env, controlled cwd,
+   per-attempt bytecode cache, bounded JSON result file, wall-clock
+   deadline).
 7. The orchestrator genuinely re-executes the checks three times under one
    recorded revision and configuration digest, emitting per-check and
    per-attempt evidence records.

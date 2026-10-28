@@ -41,9 +41,11 @@
   explicit fixtures, never as model output.
 - `run_verification` and `attest verify` enforce the boundary at invocation:
   a missing or stale approval refuses verification instead of verdicting.
-- No sandbox isolation exists yet; untrusted execution stays disabled.
-  Checks run in worker subprocesses via a FastAPI test client, and only
-  verifier-owned check code runs — model-provided code is never executed.
+- No OS-enforced sandbox isolation exists yet; untrusted execution stays
+  disabled. Checks run in worker subprocesses via a FastAPI test client
+  under the S1 exposure-reduction policy (minimal env, controlled cwd,
+  JSON results), and only verifier-owned check code runs — model-provided
+  code is never executed.
 
 ## Revision integrity (MVP policy)
 
@@ -256,6 +258,58 @@ Keep these four distinctions separate when reading any verdict:
   malicious code. Worker callables must be picklable top-level references.
   A bare `run_verification` library call remains in-process and unbounded;
   only the CLI path applies deadlines.
+
+## Worker sandbox (S1 exposure reduction)
+
+S1 hardens the worker boundary; it does not provide operating-system
+enforced isolation. Hostile target code remains out of scope.
+
+- Explicit worker environment: each worker starts with an allowlist of
+  `PYTHONPYCACHEPREFIX` only (plus `SYSTEMROOT`/`TEMP`/`TMP` on Windows).
+  Credentials, tokens, `PATH`, `PYTHONPATH`, and all other inherited
+  variables are dropped before the child execs; the child re-enforces
+  the allowlist at startup. The parent's environment is restored
+  immediately after spawn.
+- Controlled working directory: workers start in a fresh per-worker
+  directory outside the live repository (mode 0700), never in `--repo`.
+  Relative paths in worker code resolve there, not in the tree.
+- JSON result protocol (v1) replaces pickle IPC for both attempt
+  results and origin probes: the worker writes `result.json`, the
+  parent reads it only after worker exit, and no worker-controlled
+  pickle is ever deserialized. Envelopes carry an explicit protocol
+  version; unknown versions, shapes, types, non-finite numbers, and
+  unknown fields are rejected.
+- Bounds: result files above 256 KiB and evidence details above 16 KiB
+  fail the attempt closed as infrastructure failures — required
+  evidence is never silently truncated. Captured stdout/stderr are
+  bounded (64 KiB read, 2 KiB diagnostic tail) with explicit
+  truncation markers, surfaced only on infrastructure failures and
+  never merged into passing evidence.
+- Per-attempt bytecode caches: every attempt worker gets its own
+  `PYTHONPYCACHEPREFIX` directory, so attempts cannot share writable
+  bytecode. Origin-probe workers inherit the run-level cache prefix.
+- Worker stdout/stderr are captured to files; crashes, timeouts, and
+  malformed results yield `INFRA_FAILURE` (hence `INCONCLUSIVE`),
+  never `PASSED` or `FAILED`. Verdicts remain derived parent-side by
+  the unchanged three-attempt policy.
+- Worker spawning is main-thread-only and enforced: the guarded-spawn
+  helper raises instead of swapping process-global environment and
+  directory state from any other thread. All supported entry points
+  are synchronous; a future threaded SDK must serialize verification
+  calls or provide its own isolation before reusing this path.
+- Result and capture readers accept only regular files (never
+  following symlinks) and bound every read, so worker-left FIFOs,
+  sockets, devices, or directories fail closed without blocking.
+  A path swapped after the check needs a post-exit writer, which S1
+  supervision cannot produce or observe — content that arrives this
+  way is still size-bounded and schema-validated, so at worst it is
+  rejected as malformed.
+- Residuals: no CPU/memory limits, no network or filesystem
+  restrictions, no privilege separation, no process-tree supervision
+  beyond the direct child. Unbounded worker *writes* can fill disk
+  before failing closed. A worker whose validated report lies is
+  still trusted — sandboxing the channel cannot authenticate its
+  content.
 
 ## Endpoint inventory mechanism
 
