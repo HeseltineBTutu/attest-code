@@ -42,7 +42,13 @@ def _approve(invariant: Path, approvals: Path) -> None:
 
 
 def test_expected_packages_are_covered() -> None:
-    assert set(EXPECTED_PACKAGES) == {"attest_spec", "attest_core", "apps", "examples"}
+    assert set(EXPECTED_PACKAGES) == {
+        "attest_spec",
+        "attest_core",
+        "apps",
+        "examples",
+        "integrations",
+    }
 
 
 def test_loaded_tree_passes_parent_origins() -> None:

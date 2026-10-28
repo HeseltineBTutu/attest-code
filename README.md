@@ -7,15 +7,16 @@ Core principle: **a generator cannot be a verifier.** Meta models may diagnose
 failures and propose repairs. They must not control the invariant registry,
 weaken approved requirements, or determine the final verdict.
 
-## Current status (Phase 3: CLI and revision integrity)
+## Current status (F7: verified execution snapshot)
 
 Implemented:
 
 - `attest_spec`: shared contracts (`Invariant`, `ApprovalRecord`, verdict enums).
 - `attest_core.invariants`: definition loading, validation, versioning, and an
   explicit human-approval boundary.
-- `attest_core.evidence`: versioned evidence records and SHA-256 digests over
-  canonical JSON.
+- `attest_core.evidence`: versioned evidence records, SHA-256 digests over
+  canonical JSON, and attestation v2 with invariant-content binding plus
+  `verify_attestation`.
 - `attest_core.verdicts`: deterministic policy (FAILED requires three
   reproducible violations under the same revision and configuration).
 - `attest_core.verification`: orchestration that re-executes the approved
@@ -23,7 +24,18 @@ Implemented:
   classifies via the verdict policy. PASSED means verified under that policy.
 - `attest_core.git`: focused adapter resolving revisions and enforcing the
   clean-snapshot policy.
-- `attest_core.bounds`: wall-clock-bounded worker subprocesses per attempt.
+- `attest_core.origin`: repository-root canonicalization and parent/worker
+  module-origin binding (F1).
+- `attest_core.runtime`: import-override validation, startup-module preflight,
+  and deterministic runtime settings bound into the configuration digest
+  (F2/F5).
+- `attest_core.bounds`: wall-clock-bounded worker subprocesses per attempt,
+  each re-validating its own snapshot origins before running checks.
+- `attest_core.snapshot`: execution closure exported from Git objects with a
+  manifest digest; workers import from the verified snapshot instead of the
+  live worktree, and the manifest is re-verified at every attempt boundary
+  (F7). The digest is bound into verification evidence; continuous
+  within-attempt immutability is not guaranteed.
 - `apps.demo_api`: synthetic FastAPI app with vulnerable, incomplete-repair,
   repaired, hanging, and crashing fixtures plus a registered-route inventory.
 - `examples.admin_authorization`: approved independent checks for
@@ -31,12 +43,19 @@ Implemented:
 - `apps.cli` (`attest review` / `attest verify`): operator approval flow and
   authoritative verification with text and versioned JSON output.
 - `invariants/auth-admin-001.yaml`: the approved invariant definition.
-- 79 tests covering the slice, the CLI, git policy, and bounded execution.
+- `integrations.meta_models`: isolated Meta Model API client
+  (diagnose-and-propose-patch). Standard model `muse-spark-1.3` only;
+  contributor variants are refused. Requires a FAILED verify report,
+  sends only bounded diagnostic inputs, validates the reply's diff
+  against the `src/`/`tests/` scope, and renders the proposal as
+  UNVERIFIED for human review. Never verdicts, never writes the repo.
+- 256 tests covering the slice, the CLI, git policy, bounded execution,
+  the F1–F7 security controls, and the Meta integration contract.
 
 Not yet implemented (see `docs/hackathon-scope.md`):
 
-- Sandbox isolation against malicious code and the Meta model integration
-  boundary (diagnose only, no API calls in this phase).
+- Sandbox isolation against malicious code.
+- `attest_sdk` public programmatic interface.
 
 ## CLI usage
 
@@ -51,6 +70,12 @@ uv run attest review invariants/auth-admin-001.yaml --approver <name>
 uv run attest verify invariants/auth-admin-001.yaml --revision HEAD
 uv run attest verify invariants/auth-admin-001.yaml --revision HEAD --format json
 uv run attest verify invariants/auth-admin-001.yaml --revision HEAD --target vulnerable
+
+# Diagnose a FAILED report (needs MODEL_API_KEY; human review still required)
+uv run attest verify invariants/auth-admin-001.yaml --revision HEAD \
+  --target vulnerable --format json > /tmp/verify.json
+uv run python -m integrations.meta_models diagnose --report /tmp/verify.json \
+  --invariant-file invariants/auth-admin-001.yaml --excerpt <excerpt-file>
 ```
 
 Exit codes: 0 for approval/PASSED, 1 for FAILED, 2 for INCONCLUSIVE, 3 for

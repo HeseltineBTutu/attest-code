@@ -25,7 +25,7 @@ from typing import Any
 
 from attest_core.git import RELEVANT_PATHS, GitError, repo_root
 
-EXPECTED_PACKAGES = ("attest_spec", "attest_core", "apps", "examples")
+EXPECTED_PACKAGES = ("attest_spec", "attest_core", "apps", "examples", "integrations")
 """First-party packages whose origin must be inside the attested tree."""
 
 _PROBE_GRACE_SECONDS = 10

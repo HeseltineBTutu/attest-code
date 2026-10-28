@@ -76,8 +76,9 @@
   plant-and-revert fully inside one attempt remains invisible (see the
   guarantees section below).
 - Module-origin binding (F1 fix): `attest verify` proves the executed
-  verifier/demo packages (`attest_spec`, `attest_core`, `apps`, `examples`)
-  resolve inside the snapshot-enforced tree, both for the already-loaded
+  verifier/demo packages (`attest_spec`, `attest_core`, `apps`, `examples`,
+  `integrations`) resolve inside the snapshot-enforced tree, both for the
+  already-loaded
   parent modules and via a spawned worker probe that reports where the
   worker itself would import them. Unresolvable, namespace, zip, foreign
   checkout, installed-copy, or `PYTHONPATH`-shadowed modules fail closed
@@ -183,7 +184,7 @@ worktree.
   can differ from both the blobs and the worktree). Object reads are
   immune to live-tree races by construction.
 - Snapshot files are exactly the execution closure: `src/` containing
-  precisely the four first-party packages, each with `__init__.py`.
+  precisely the five first-party packages, each with `__init__.py`.
   Symlinks, submodules, non-regular files, importable non-`.py` artifacts,
   stray top-level entries (including stdlib-shadowing names), and
   unsupported config entries fail the build closed. The manifest binds
