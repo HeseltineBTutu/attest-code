@@ -14,15 +14,34 @@ from __future__ import annotations
 import multiprocessing
 from collections.abc import Callable
 from multiprocessing.connection import Connection
+from pathlib import Path
 
+from attest_core.origin import OriginError, check_origins, report_worker_origins
 from attest_core.verification import AttemptReport
 from attest_spec import AttemptOutcome
 
 _TERMINATE_GRACE_SECONDS = 10
 
 
-def _worker_main(func: Callable[[], AttemptReport], conn: Connection) -> None:
+def _worker_main(
+    func: Callable[[], AttemptReport], conn: Connection, snapshot_root: Path | None
+) -> None:
     try:
+        if snapshot_root is not None:
+            try:
+                check_origins(report_worker_origins(), snapshot_root, actor="attempt worker")
+            except OriginError as exc:
+                conn.send(
+                    (
+                        "ok",
+                        AttemptReport(
+                            AttemptOutcome.INFRA_FAILURE,
+                            (),
+                            f"worker origin self-check failed: {exc}",
+                        ),
+                    )
+                )
+                return
         conn.send(("ok", func()))
     except Exception as exc:
         conn.send(("error", f"{type(exc).__name__}: {exc}"))
@@ -34,13 +53,23 @@ def _crashed(exitcode: object) -> AttemptReport:
     return AttemptReport(AttemptOutcome.INFRA_FAILURE, (), f"worker crashed (exit code {exitcode})")
 
 
-def run_bounded(func: Callable[[], AttemptReport], timeout_seconds: float) -> AttemptReport:
-    """Run one attempt with a wall-clock deadline, terminating on expiry."""
+def run_bounded(
+    func: Callable[[], AttemptReport],
+    timeout_seconds: float,
+    *,
+    snapshot_root: Path | None = None,
+) -> AttemptReport:
+    """Run one attempt with a wall-clock deadline, terminating on expiry.
+
+    When a snapshot root is given, the worker verifies its own first-party
+    origins resolve beneath it before running checks; anything else fails
+    the attempt as an infrastructure failure.
+    """
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
     ctx = multiprocessing.get_context("spawn")
     parent_conn, child_conn = ctx.Pipe(duplex=False)
-    proc = ctx.Process(target=_worker_main, args=(func, child_conn), daemon=True)
+    proc = ctx.Process(target=_worker_main, args=(func, child_conn, snapshot_root), daemon=True)
     proc.start()
     child_conn.close()
     try:

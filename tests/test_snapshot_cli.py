@@ -259,3 +259,120 @@ def test_planted_bytecode_control_proves_poison(staged_repo: Any) -> None:
     )
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip() == "403"
+
+
+def test_tracked_symlink_refuses_snapshot_build(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    link = staged_repo.src / "examples" / "linkmod.py"
+    link.symlink_to(staged_repo.invariant)
+    _commit(staged_repo.root, "add", "-A")
+    _commit(staged_repo.root, "commit", "-qm", "tracked symlink")
+    proc = _verify(staged_repo, "--target", "repaired")
+    assert proc.returncode == 3
+    assert "symlink" in proc.stderr and "rejected" in proc.stderr
+
+
+def test_submodule_refuses_snapshot_build(staged_repo: Any, tmp_path: Path) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    sub = tmp_path / "subsrc"
+    sub.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(sub)], check=True)
+    (sub / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(sub), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(sub),
+            "-c",
+            "user.email=t@e.c",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "sub",
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(staged_repo.root),
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "-q",
+            "add",
+            str(sub),
+            "src/subrepo",
+        ],
+        check=True,
+    )
+    _commit(staged_repo.root, "commit", "-qm", "submodule")
+    proc = _verify(staged_repo, "--target", "repaired")
+    assert proc.returncode == 3
+    assert "submodule" in proc.stderr and "rejected" in proc.stderr
+
+
+def test_stdlib_shadow_refuses_snapshot_build(staged_repo: Any) -> None:
+    # sunau (never imported by the CLI chain) reaches the snapshot gate; an
+    # eagerly-imported name like base64 would break the parent interpreter
+    # before any gate runs (trusted-launch residual, documented).
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    (staged_repo.src / "sunau.py").write_text("HOSTILE = True\n", encoding="utf-8")
+    _commit(staged_repo.root, "add", "-A")
+    _commit(staged_repo.root, "commit", "-qm", "stdlib shadow")
+    proc = _verify(staged_repo, "--target", "repaired")
+    assert proc.returncode == 3
+    assert "must be exactly" in proc.stderr
+
+
+def test_tracked_src_startup_module_is_refused(staged_repo: Any, tmp_path: Path) -> None:
+    if not _startup_import_active(tmp_path, "sitecustomize"):
+        pytest.skip("sitecustomize autoimport is inactive on this interpreter")
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    marker = tmp_path / "src-startup.marker.jsonl"
+    (staged_repo.src / "sitecustomize.py").write_text(
+        "import json, sys\n"
+        f"with open({str(marker)!r}, 'a') as fh:\n"
+        "    fh.write(json.dumps(sys.argv) + '\\n')\n",
+        encoding="utf-8",
+    )
+    _commit(staged_repo.root, "add", "-A")
+    _commit(staged_repo.root, "commit", "-qm", "tracked src startup")
+    proc = _verify(staged_repo)
+    assert proc.returncode == 3
+    assert "exists in the source tree" in proc.stderr
+    runs = [json.loads(line) for line in marker.read_text(encoding="utf-8").splitlines()]
+    assert runs, "startup module never executed; mechanism probe disagreed with the run"
+    for argv in runs:
+        assert argv[1:2] == ["verify"], f"non-parent process executed startup code: {argv}"
+
+
+def test_config_digest_stable_across_runs(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    digests = set()
+    for _ in range(2):
+        proc = _verify(staged_repo, "--target", "repaired", "--format", "json")
+        assert proc.returncode == 0, proc.stderr
+        payload = json.loads(proc.stdout)
+        assert payload["verdict"] == "PASSED"
+        digests.add(payload["config_digest"])
+        outcomes = [attempt["outcome"] for attempt in payload["attempts"]]
+        assert outcomes == ["PASS", "PASS", "PASS"]
+    assert len(digests) == 1
+
+
+def test_export_subst_repo_verifies_blob_bytes(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    target = staged_repo.src / "apps" / "demo_api.py"
+    target.write_bytes(target.read_bytes() + b"\nX = '$Format:%H$'\n")
+    (staged_repo.root / ".gitattributes").write_text(
+        "src/apps/demo_api.py export-subst\n", encoding="utf-8"
+    )
+    _commit(staged_repo.root, "add", "-A")
+    _commit(staged_repo.root, "commit", "-qm", "export subst")
+    proc = _verify(staged_repo, "--target", "repaired")
+    assert proc.returncode == 0, proc.stderr
+    assert "verdict: PASSED" in proc.stdout

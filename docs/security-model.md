@@ -88,14 +88,18 @@
 - A fingerprint (HEAD id plus relevant status) is taken before and after the
   run; a mismatch overrides any verdict with INCONCLUSIVE and is flagged in
   the output (`snapshot-changed: true`). Each attempt is additionally
-  fingerprinted before and after it runs: drift that persists past any
-  attempt boundary fails that attempt as an infrastructure failure (with
-  the drift recorded in its evidence), which yields INCONCLUSIVE under the
-  unchanged verdict policy. Dirt planted and reverted strictly inside one
-  attempt remains invisible — sampling a live worktree cannot bind the
-  exact bytes a worker executed. True per-attempt byte identity needs
-  immutable execution (verifying an exported snapshot rather than the live
-  tree), which is future work, not claimed here.
+  guarded before and after it runs: the live fingerprint plus the
+  execution-snapshot manifest are re-verified, and drift that persists
+  past any attempt boundary fails that attempt as an infrastructure
+  failure (with the drift recorded in its evidence), which yields
+  INCONCLUSIVE under the unchanged verdict policy. Sampling alone cannot
+  bind the exact bytes a worker executed throughout an attempt: F7 closes
+  this for the execution inputs by constructing `src/` from Git objects,
+  recording a manifest digest, and re-verifying it at every attempt
+  boundary — but a change made and reverted strictly inside one attempt
+  remains invisible by construction. This is integrity-checked execution,
+  not tamper-proof, continuously immutable, or sandboxed execution (see
+  the F7 section below).
 - Worker bytecode caches are isolated per run: `attest verify` points
   `PYTHONPYCACHEPREFIX` at a fresh temporary directory before the first
   child spawns, so workers neither read bytecode planted in the tree's
@@ -114,12 +118,13 @@
   against the working directory; nonexistent entries are still refused so
   they cannot be planted mid-run). Anything else fails closed with an
   integrity error (exit 3).
-- Autoimported startup modules tied to the repository root are refused by
+- Autoimported startup modules tied to the repository tree are refused by
   a preflight that runs before the first child process is spawned: a
-  `sitecustomize.py` or `usercustomize.py` present as a file or symlink
-  (tracked, untracked, ignored, or dangling) aborts verification, as does
-  an already-imported startup module attributable to the tree (e.g. a file
-  that executed and deleted itself during interpreter startup).
+  `sitecustomize.py` or `usercustomize.py` at the root or under `src/`,
+  present as a file or symlink (tracked, untracked, ignored, or dangling),
+  aborts verification, as does an already-imported startup module
+  attributable to the tree (e.g. a file that executed and deleted itself
+  during interpreter startup).
   The preflight cannot reverse code that already ran: a startup module
   executed in the parent before `main()` — via the working directory under
   cwd-on-path entry points, or via `PYTHONPATH` entries resolving to the
@@ -155,14 +160,63 @@
   it shows the loaded files live in the attested snapshot, not a hash of
   what the interpreter executed. Installed third-party packages and the
   interpreter binary remain recorded-but-unverified (audit item F4).
-- There is a check-to-execution window: files could change after the origin
-  probe and before a worker imports them. Net changes are caught by the
-  before/after fingerprint; transient change-and-revert inside the window
-  is not (audit item F6).
+- Spawn workers inherit the parent's `sys.path` wholesale, so a worker
+  origin probe largely re-validates parent path state rather than an
+  independent resolution. The F7 snapshot execution model (below) makes
+  this explicit: the parent path is surgically pointed at the snapshot,
+  and each worker additionally self-checks its own origins.
 - The binding assumes the operator's Python resolves `find_spec` the same
   way in parent and worker (same `sys.path`, cwd, environment, which spawn
   inherits). Exotic importers (meta-path finders, custom loaders) are
   outside the MVP threat model.
+
+## Immutable execution snapshot (F7 fix)
+
+Git revision identity names a commit; it never hashed the bytes each
+worker executed. F7 separates the two: workers import first-party code
+from a verified snapshot exported from git objects, never from the live
+worktree.
+
+- Construction reads blobs via `ls-tree` + `cat-file --batch`, never by
+  copying the worktree and never via `git archive` (archive applies
+  export-subst expansion and honors export-ignore omissions, so its bytes
+  can differ from both the blobs and the worktree). Object reads are
+  immune to live-tree races by construction.
+- Snapshot files are exactly the execution closure: `src/` containing
+  precisely the four first-party packages, each with `__init__.py`.
+  Symlinks, submodules, non-regular files, importable non-`.py` artifacts,
+  stray top-level entries (including stdlib-shadowing names), and
+  unsupported config entries fail the build closed. The manifest binds
+  sorted relative paths, file-content digests, the HEAD OID, a policy id
+  (`attest-snapshot-v1`), the selected invariant's content digest, the
+  validated approval-record digest, and HEAD config digests into
+  `snapshot.sha256`, which enters the run settings and therefore every
+  evidence record and the attestation chain. No schema migration: the
+  binding rides the existing `config_digest` field.
+- The invariant and approval may live outside `HEAD` (untracked files are
+  legal inputs): they are bound by content digest of the validated loaded
+  objects, with a `head`/`worktree` provenance label that describes where
+  the bytes were found and proves nothing about validity. `tests/` is
+  excluded from the execution snapshot (nothing imports it; proven by
+  import audit) but remains live-gate enforced.
+- Before the first attempt worker spawns, the parent strips live-tree
+  entries from its own `sys.path` and prepends the snapshot; children
+  inherit that list. A worker-origin probe validates snapshot resolution
+  pre-attempts, and every attempt worker re-validates its own origins
+  before running checks — any fallback outside the snapshot fails that
+  attempt as an infrastructure failure. Package `__path__` confines
+  submodule imports; fixed worker import names make live fallback
+  unreachable without tripping the self-check.
+- The snapshot manifest is re-verified before and after every attempt;
+  tampering that persists past any attempt boundary yields INCONCLUSIVE.
+  All three attempts share one snapshot object and digest.
+- Explicitly not claimed: this is integrity-checked immutable-input
+  execution, not tamper-proof execution and not a sandbox. A same-uid
+  process that rewrites snapshot bytes and restores them strictly inside
+  one attempt is outside the guarantee. The parent interpreter still
+  imports live code and loads approvals from the live tree (trusted-launch
+  boundary unchanged). Read-only file bits are a speed-bump; detection
+  rests on manifest re-verification, never on modes.
 
 ## What each guarantee does and does not mean
 

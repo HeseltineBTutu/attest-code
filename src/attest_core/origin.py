@@ -171,3 +171,25 @@ def verify_code_origin(root: Path, timeout_seconds: float) -> OriginReport:
     parent = check_origins(parent_origins(), root, actor="parent process")
     worker = check_origins(probe_worker_origins(timeout_seconds), root, actor="worker process")
     return OriginReport(root=root, parent=parent, worker=worker)
+
+
+def prepare_worker_sys_path(snapshot_src: Path, live_root: Path) -> None:
+    """Point this process's import path at the snapshot for future children.
+
+    Spawn children inherit the parent's `sys.path` wholesale, so strip the
+    empty entry and every entry resolving under the live root, then prepend
+    the snapshot source directory. Mutates process-global state; the CLI
+    invokes verification once per process (see security-model.md).
+    """
+    live = live_root.resolve()
+    kept: list[str] = []
+    for entry in sys.path:
+        if not entry:
+            continue
+        try:
+            if Path(entry).resolve().is_relative_to(live):
+                continue
+        except OSError:
+            continue
+        kept.append(entry)
+    sys.path[:] = [str(snapshot_src), *kept]

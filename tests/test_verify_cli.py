@@ -6,7 +6,8 @@ import io
 import json
 import re
 import subprocess
-from collections.abc import Callable
+import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +16,18 @@ import pytest
 from apps.review import run_review
 from apps.verify import run_verify
 from attest_core.bounds import run_bounded as real_run_bounded
+from attest_core.snapshot import Snapshot
+from attest_core.snapshot import verify_snapshot as real_verify_snapshot
 from attest_core.verification import AttemptReport
 from attest_spec import AttemptOutcome, Verdict
+
+
+@pytest.fixture(autouse=True)
+def _restore_sys_path() -> Iterator[None]:
+    old = list(sys.path)
+    yield
+    sys.path[:] = old
+
 
 INVARIANT_YAML = """\
 - id: AUTH-ADMIN-001
@@ -189,12 +200,14 @@ def test_mid_run_drift_fails_attempts_inconclusive(
     calls = 0
 
     def dirtying_run_bounded(
-        func: Callable[[], AttemptReport], timeout_seconds: float
+        func: Callable[[], AttemptReport],
+        timeout_seconds: float,
+        snapshot_root: Path | None = None,
     ) -> AttemptReport:
         nonlocal calls
         calls += 1
         (staged_repo.src / "apps" / "demo_api.py").write_text("# drifted\n", encoding="utf-8")
-        return real_run_bounded(func, timeout_seconds)
+        return real_run_bounded(func, timeout_seconds, snapshot_root=snapshot_root)
 
     monkeypatch.setattr("apps.verify.run_bounded", dirtying_run_bounded)
     stdout = io.StringIO()
@@ -218,3 +231,109 @@ def test_mid_run_drift_fails_attempts_inconclusive(
     assert outcomes == [AttemptOutcome.INFRA_FAILURE.value] * 3
     details = [attempt["detail"] for attempt in payload["attempts"]]
     assert any("source snapshot changed during verification" in detail for detail in details)
+
+
+def test_snapshot_tamper_fails_attempts_inconclusive(
+    staged_repo: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Snapshot tampering past an attempt boundary fails closed (real guard).
+
+    The re-verification spy delegates to the real check and only records
+    the snapshot location; the worker call is wrapped (never replaced) to
+    interleave a genuine snapshot mutation. Tamper is a comment line so a
+    worker that still ran would pass — the guard is the failure cause.
+    """
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    monkeypatch.setattr("apps.verify.verify_code_origin", lambda *args, **kwargs: None)
+    roots: list[Path] = []
+
+    def recording_verify(snapshot: Snapshot) -> None:
+        roots.append(snapshot.root)
+        real_verify_snapshot(snapshot)
+
+    monkeypatch.setattr("apps.verify.verify_snapshot", recording_verify)
+    calls = 0
+
+    def tampering_run_bounded(
+        func: Callable[[], AttemptReport],
+        timeout_seconds: float,
+        snapshot_root: Path | None = None,
+    ) -> AttemptReport:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            target = roots[0] / "src" / "apps" / "demo_api.py"
+            target.chmod(0o644)
+            target.write_bytes(target.read_bytes() + b"# tampered\n")
+        return real_run_bounded(func, timeout_seconds, snapshot_root=snapshot_root)
+
+    monkeypatch.setattr("apps.verify.run_bounded", tampering_run_bounded)
+    stdout = io.StringIO()
+    verdict = run_verify(
+        invariant_file=staged_repo.invariant,
+        approvals_file=staged_repo.approvals,
+        invariant_id=None,
+        revision="HEAD",
+        repo=staged_repo.root,
+        target="repaired",
+        timeout_seconds=60.0,
+        output_format="json",
+        stdout=stdout,
+    )
+    assert verdict is Verdict.INCONCLUSIVE
+    assert calls == 2
+    payload = json.loads(stdout.getvalue())
+    outcomes = [attempt["outcome"] for attempt in payload["attempts"]]
+    assert outcomes == [
+        AttemptOutcome.PASS.value,
+        AttemptOutcome.INFRA_FAILURE.value,
+        AttemptOutcome.INFRA_FAILURE.value,
+    ]
+    details = [attempt["detail"] for attempt in payload["attempts"]]
+    assert any("snapshot integrity check failed" in detail for detail in details)
+
+
+def test_worker_path_tamper_caught_by_self_check(
+    staged_repo: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Workers redirected off-snapshot refuse to run checks (real spawn).
+
+    Re-inserting the live tree ahead of the snapshot simulates parent-path
+    tampering after the pre-attempt probe; each worker's own origin
+    self-check must catch it. Workers still spawn (the check is worker-side)
+    but execute no verification logic.
+    """
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    monkeypatch.setattr("apps.verify.verify_code_origin", lambda *args, **kwargs: None)
+    calls = 0
+
+    def redirecting_run_bounded(
+        func: Callable[[], AttemptReport],
+        timeout_seconds: float,
+        snapshot_root: Path | None = None,
+    ) -> AttemptReport:
+        nonlocal calls
+        calls += 1
+        sys.path.insert(0, str(staged_repo.src))
+        return real_run_bounded(func, timeout_seconds, snapshot_root=snapshot_root)
+
+    monkeypatch.setattr("apps.verify.run_bounded", redirecting_run_bounded)
+    stdout = io.StringIO()
+    verdict = run_verify(
+        invariant_file=staged_repo.invariant,
+        approvals_file=staged_repo.approvals,
+        invariant_id=None,
+        revision="HEAD",
+        repo=staged_repo.root,
+        target="repaired",
+        timeout_seconds=60.0,
+        output_format="json",
+        stdout=stdout,
+    )
+    assert verdict is Verdict.INCONCLUSIVE
+    assert calls == 3
+    payload = json.loads(stdout.getvalue())
+    outcomes = [attempt["outcome"] for attempt in payload["attempts"]]
+    assert outcomes == [AttemptOutcome.INFRA_FAILURE.value] * 3
+    details = [attempt["detail"] for attempt in payload["attempts"]]
+    assert all("worker origin self-check failed" in detail for detail in details)

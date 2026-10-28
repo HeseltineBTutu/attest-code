@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import time
+from pathlib import Path
 
 import pytest
 
@@ -48,3 +49,13 @@ def test_worker_error_is_reported() -> None:
 def test_non_positive_timeout_raises() -> None:
     with pytest.raises(ValueError, match="positive"):
         run_bounded(functools.partial(run_target_attempt, "repaired", SCOPE), 0.0)
+
+
+def test_snapshot_self_check_failure_is_infra(tmp_path: Path) -> None:
+    report = run_bounded(
+        functools.partial(run_target_attempt, "repaired", SCOPE),
+        30.0,
+        snapshot_root=tmp_path / "no-such-snapshot",
+    )
+    assert report.outcome == AttemptOutcome.INFRA_FAILURE
+    assert "self-check" in report.detail

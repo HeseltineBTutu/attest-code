@@ -81,17 +81,24 @@ def _loaded_startup_source(root: Path, module: str) -> str | None:
 
 
 def check_root_startup_modules(root: Path) -> None:
-    """Refuse auto-imported startup modules tied to the repository root.
+    """Refuse auto-imported startup modules tied to the repository tree.
 
     Call before the first child process is spawned: persistent files and
-    symlinks (including dangling ones) are refused on presence, and an
-    already-imported module attributable to the tree trips the
-    loaded-module check. Code that executed before this check and scrubbed
-    its traces cannot be detected in-process (see security-model.md).
+    symlinks (including dangling ones) at the root or under src/ are
+    refused on presence, and an already-imported module attributable to
+    the tree trips the loaded-module check. Code that executed before this
+    check and scrubbed its traces cannot be detected in-process (see
+    security-model.md).
     """
-    for name in DENIED_ROOT_MODULES:
-        if os.path.lexists(root / name):
-            raise RuntimeConfigError(f"{name} exists at the repository root; refusing to verify")
+    for parent in (root, root / "src"):
+        for name in DENIED_ROOT_MODULES:
+            if not os.path.lexists(parent / name):
+                continue
+            if parent == root:
+                raise RuntimeConfigError(
+                    f"{name} exists at the repository root; refusing to verify"
+                )
+            raise RuntimeConfigError(f"src/{name} exists in the source tree; refusing to verify")
     for name in DENIED_ROOT_MODULES:
         reason = _loaded_startup_source(root, name.removesuffix(".py"))
         if reason is not None:

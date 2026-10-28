@@ -62,6 +62,20 @@ def invariant_content_digest(invariant: Invariant) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def approval_digest(approval: ApprovalRecord) -> str:
+    """Digest of the complete validated approval record."""
+    payload = {
+        "invariant_id": approval.invariant_id,
+        "invariant_version": approval.invariant_version,
+        "approver": approval.approver,
+        "approved_at": approval.approved_at,
+        "content_digest": approval.content_digest,
+        "method": approval.method,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def create_approval(
     invariant: Invariant,
     *,

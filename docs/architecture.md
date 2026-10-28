@@ -18,6 +18,9 @@
   wall-clock deadlines (bounding, not a sandbox).
 - `attest_core.origin` (implemented): repository-root canonicalization,
   input containment, and parent/worker module-origin binding.
+- `attest_core.snapshot` (implemented): exports the verified execution
+  closure from git objects with a manifest digest; workers import from it
+  instead of the live worktree.
 - `attest_core.runtime` (implemented): import-override and root startup-module
   validation (a pre-spawn preflight plus an already-imported tripwire), plus
   deterministic runtime settings (interpreter, `PYTHONPATH`, installed

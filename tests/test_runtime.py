@@ -160,6 +160,23 @@ def test_root_startup_module_dangling_symlink_is_refused(tmp_path: Path) -> None
         check_root_startup_modules(tmp_path)
 
 
+@pytest.mark.parametrize("name", ["sitecustomize.py", "usercustomize.py"])
+def test_src_startup_module_is_refused(tmp_path: Path, name: str) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / name).write_text("x = 1\n", encoding="utf-8")
+    with pytest.raises(RuntimeConfigError, match="exists in the source tree"):
+        check_root_startup_modules(tmp_path)
+
+
+def test_src_startup_module_symlink_is_refused(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    target = tmp_path / "src" / "real.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "src" / "sitecustomize.py").symlink_to(target)
+    with pytest.raises(RuntimeConfigError, match="exists in the source tree"):
+        check_root_startup_modules(tmp_path)
+
+
 def _stage_loaded_module(monkeypatch: pytest.MonkeyPatch, name: str, file: str | None) -> None:
     module = types.ModuleType(name)
     if file is not None:

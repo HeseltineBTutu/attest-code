@@ -30,6 +30,9 @@ from attest_core.invariants import (
     load_definitions,
 )
 from attest_core.origin import (
+    check_origins,
+    prepare_worker_sys_path,
+    probe_worker_origins,
     require_within_root,
     resolve_repo_root,
     verify_code_origin,
@@ -39,6 +42,7 @@ from attest_core.runtime import (
     check_root_startup_modules,
     collect_runtime_settings,
 )
+from attest_core.snapshot import Snapshot, SnapshotError, build_snapshot, verify_snapshot
 from attest_core.verdicts import REQUIRED_ATTEMPTS
 from attest_core.verification import AttemptReport, VerificationReport, run_verification
 from attest_spec import Invariant, Verdict
@@ -86,6 +90,7 @@ def _settings(
     target: str,
     scope: tuple[str, ...],
     snapshot: str,
+    snapshot_digest: str,
     timeout_seconds: float,
     runtime: Mapping[str, str],
 ) -> dict[str, str]:
@@ -94,10 +99,21 @@ def _settings(
         "client": "attest-cli",
         "scope": ",".join(sorted(scope)),
         "snapshot": snapshot,
+        "snapshot.sha256": snapshot_digest,
         "target": target,
         "timeout_seconds": f"{timeout_seconds:g}",
         **runtime,
     }
+
+
+def _guard_attempt_snapshot(root: Path, exec_snapshot: Snapshot, before: str) -> None:
+    """Fail an attempt when live or snapshot bytes drifted past a boundary."""
+    if fingerprint(root) != before:
+        raise SnapshotDriftError(SNAPSHOT_CHANGED_REASON)
+    try:
+        verify_snapshot(exec_snapshot)
+    except SnapshotError as exc:
+        raise SnapshotDriftError(str(exc)) from exc
 
 
 def run_verify(
@@ -138,34 +154,46 @@ def run_verify(
         raise VerifyError(f"no approval for {invariant.invariant_id} v{invariant.version}")
     if not is_approval_valid(invariant, approval):
         raise VerifyError("stored approval does not match invariant content")
-    snapshot = check_snapshot(root, revision)
+    source = check_snapshot(root, revision)
     verify_code_origin(root, timeout_seconds)
     check_environment(root)
     runtime = collect_runtime_settings(root)
+    exec_snapshot = build_snapshot(
+        repo=root,
+        head=source.revision,
+        invariant=invariant,
+        approval=approval,
+        invariant_path=invariant_file,
+    )
+    check_snapshot(root, revision)
+    prepare_worker_sys_path(exec_snapshot.root / "src", root)
+    check_origins(
+        probe_worker_origins(timeout_seconds), exec_snapshot.root, actor="snapshot worker"
+    )
     before = fingerprint(root)
     scope = tuple(invariant.scope)
 
     def run_checks() -> AttemptReport:
-        # Per-attempt drift detection against the clean run baseline: dirt
-        # that persists past any attempt boundary fails that attempt as an
-        # infrastructure failure. Dirt planted and reverted strictly inside
-        # one attempt remains invisible (see security-model.md).
-        if fingerprint(root) != before:
-            raise SnapshotDriftError(SNAPSHOT_CHANGED_REASON)
+        # Per-attempt drift detection against the clean baselines: live dirt
+        # or snapshot tampering that persists past any attempt boundary
+        # fails that attempt as an infrastructure failure. A change made
+        # and reverted strictly inside one attempt remains invisible (see
+        # security-model.md).
+        _guard_attempt_snapshot(root, exec_snapshot, before)
         worker = functools.partial(run_target_attempt, target, scope)
-        report = run_bounded(worker, timeout_seconds)
-        if fingerprint(root) != before:
-            raise SnapshotDriftError(SNAPSHOT_CHANGED_REASON)
+        report = run_bounded(worker, timeout_seconds, snapshot_root=exec_snapshot.root)
+        _guard_attempt_snapshot(root, exec_snapshot, before)
         return report
 
     report = run_verification(
         invariant=invariant,
         approval=approval,
-        revision=snapshot.revision,
+        revision=source.revision,
         settings=_settings(
             target=target,
             scope=scope,
-            snapshot=snapshot.revision,
+            snapshot=source.revision,
+            snapshot_digest=exec_snapshot.digest,
             timeout_seconds=timeout_seconds,
             runtime=runtime,
         ),
