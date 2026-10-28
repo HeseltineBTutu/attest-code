@@ -16,6 +16,11 @@
   policy with before/after fingerprints.
 - `attest_core.bounds` (implemented): per-attempt worker subprocesses with
   wall-clock deadlines (bounding, not a sandbox).
+- `attest_core.origin` (implemented): repository-root canonicalization,
+  input containment, and parent/worker module-origin binding.
+- `attest_core.runtime` (implemented): import-override validation and
+  deterministic runtime settings (interpreter, `PYTHONPATH`, manifest hashes)
+  bound into the configuration digest.
 - `attest_core.sandbox` (planned): execution isolation and resource limits.
 - `apps.cli` (implemented): argparse entry point mapping outcomes to exit
   codes; no CLI framework dependency.
@@ -43,8 +48,11 @@ in main dependencies as a provisional hackathon simplification.
 3. `attest review` displays one invariant with its content digest and prior
    approval state, and records a new approval only on explicit confirmation.
 4. `attest verify` resolves the revision to a full commit id, refuses unless
-   HEAD matches and the relevant paths are clean, and requires a valid
-   approval for the exact content digest.
+   HEAD matches and the snapshot scope (source dirs, root manifests,
+   git-semantics files) is clean with no hidden executables, requires a
+   valid approval for the exact content digest, confines inputs to the
+   repo, proves loaded modules (parent and worker) originate from the
+   tree, and validates/binds the runtime environment.
 5. `run_verification` requires a matching approval at invocation and raises
    instead of verdicting when it is absent or stale.
 6. Checks compare declared scope against the app's registered routes, then

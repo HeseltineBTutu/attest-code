@@ -49,16 +49,105 @@
 
 - `attest verify --revision <rev>` resolves `<rev>` to a full 40-hex commit
   id and records that id, never the raw label.
+- `--repo` is canonicalized to an absolute path and must be the work-tree
+  top level; subdirectories, files, and non-repositories are refused.
 - Verification refuses unless HEAD equals the requested commit (check it out
-  first; the tool never switches branches) and `src/`, `tests/`, and
-  `invariants/` show no staged, unstaged, or untracked changes.
+  first; the tool never switches branches) and the snapshot scope is clean:
+  `src/`, `tests/`, `invariants/` show no staged, unstaged, or untracked
+  changes, and the root files `pyproject.toml`, `uv.lock`, `.gitignore`,
+  `.gitattributes` are each committed-and-clean or absent. Untracked root
+  files outside that set (notes, approvals, evidence) are ignored because
+  they influence neither imports nor the interpreter.
+- Ignored-file detection (F3 fix): before any attempt runs, verification
+  refuses when a git-ignored file with an importable suffix (`.py`, `.pyc`,
+  `.pyo`, `.so`, `.pyd`) exists under `src/`, or when a tracked file
+  anywhere in the snapshot scope carries an index flag that hides worktree
+  changes. Both flags are detected via `git ls-files -v` (lowercase tags
+  for assume-unchanged, `S` for skip-worktree — lowercase alone would miss
+  the second), which also means sparse checkouts, whose excluded files
+  carry skip-worktree bits, are refused rather than verified. Only
+  bytecode copies under a `__pycache__/` segment are excluded (tagged cache
+  names are never directly importable; a `.py` source there is flagged);
+  ignored files outside `src/` are out of the importable scope. Ignored
+  directory symlinks under `src/` are a known residual: they cannot shadow
+  same-named tracked entries, and dotted imports through them are not used
+  by the verifier. The before/after fingerprint covers the same scan, so a
+  file planted mid-run still flips the verdict to INCONCLUSIVE — but a
+  plant-and-revert fully inside the run window remains invisible (see the
+  guarantees section below).
+- Module-origin binding (F1 fix): `attest verify` proves the executed
+  verifier/demo packages (`attest_spec`, `attest_core`, `apps`, `examples`)
+  resolve inside the snapshot-enforced tree, both for the already-loaded
+  parent modules and via a spawned worker probe that reports where the
+  worker itself would import them. Unresolvable, namespace, zip, foreign
+  checkout, installed-copy, or `PYTHONPATH`-shadowed modules fail closed
+  with an integrity error (exit 3) before any attempt runs, so no evidence
+  can claim a revision was tested.
+- Invariant and approvals inputs must live inside `--repo`; paths outside
+  (including `..` escapes) are rejected.
 - A fingerprint (HEAD id plus relevant status) is taken before and after the
   run; a mismatch overrides any verdict with INCONCLUSIVE and is flagged in
   the output (`snapshot-changed: true`).
-- Honesty gap: the demo target is fixture code imported from the operator's
-  tree, and `--repo` selects the tree whose snapshot is enforced. In real
-  use `--repo` must be the tree containing the code under test; the tool
-  cannot prove that separately-selected trees coincide.
+
+## Runtime and environment binding (F2 fix)
+
+- Import-affecting overrides are validated before any attempt runs:
+  `PYTHONHOME` is refused outright (it relocates the stdlib); every
+  `PYTHONPATH` entry must resolve inside `--repo` (empty entries resolve
+  against the working directory; nonexistent entries are still refused so
+  they cannot be planted mid-run). Anything else fails closed with an
+  integrity error (exit 3).
+- The run configuration digest additionally binds the Python
+  implementation/version, the normalized `PYTHONPATH`, and the SHA-256 of
+  `pyproject.toml`, `uv.lock`, `.gitignore`, and `.gitattributes`
+  (`absent` when missing).
+  The same settings object feeds all three attempts, so intra-run config
+  drift is impossible by construction; a changed environment produces a
+  different digest rather than a comparable verdict.
+- Explicitly not claimed: the lockfile hash records which lockfile was
+  present, not that installed packages match it. Installed-dependency
+  verification, full worker-environment scrubbing, and the `git` binary on
+  `PATH` itself remain trusted computing base, as do `.git/config`,
+  filter drivers, hooks, and submodule contents (only the gitlink pointer
+  is observed).
+
+### Remaining origin limitations
+
+- Path binding plus a clean tree is not a proof of exact executed bytes:
+  it shows the loaded files live in the attested snapshot, not a hash of
+  what the interpreter executed. Installed third-party packages and the
+  interpreter binary remain recorded-but-unverified (audit item F4).
+- There is a check-to-execution window: files could change after the origin
+  probe and before a worker imports them. Net changes are caught by the
+  before/after fingerprint; transient change-and-revert inside the window
+  is not (audit item F6).
+- The binding assumes the operator's Python resolves `find_spec` the same
+  way in parent and worker (same `sys.path`, cwd, environment, which spawn
+  inherits). Exotic importers (meta-path finders, custom loaders) are
+  outside the MVP threat model.
+
+## What each guarantee does and does not mean
+
+Keep these four distinctions separate when reading any verdict:
+
+- **Snapshot integrity** establishes a defined repository-state boundary:
+  the recorded commit is checked out, the snapshot scope is clean, and no
+  ignored-executable or index-flag-hidden files lurk in the executable
+  scope. It says nothing about code outside that boundary (`.git/`,
+  the toolchain, the filesystem outside `--repo`).
+- **Runtime binding** records selected settings (interpreter,
+  `PYTHONPATH`, manifest hashes) in the configuration digest so runs are
+  comparable and drift is visible. It does not prove installed
+  dependencies match `uv.lock`, and it does not verify the interpreter.
+- **Environment validation** refuses obvious import overrides. It is not
+  sandbox isolation: workers share the operator's privileges and
+  filesystem, and malicious target code remains out of scope until a real
+  sandbox exists.
+- **Hashes, OIDs, and fingerprints** provide tamper-evidence relative to a
+  trusted value, not authenticity: nobody has signed anything, and a
+  reproduced digest never proves who produced a run. Before/after checks
+  also leave a time-of-check/time-of-use race: a change planted and
+  fully reverted inside the run window is invisible by construction.
 
 ## Bounded execution
 

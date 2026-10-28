@@ -1,4 +1,4 @@
-"""Verify CLI: exit codes, JSON output, snapshot refusal, determinism."""
+"""Verify CLI end to end: subprocess runs importing from the staged tree."""
 
 from __future__ import annotations
 
@@ -7,12 +7,9 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
 
-import pytest
-
-from apps.cli import main
 from apps.review import run_review
-from apps.verify import SNAPSHOT_CHANGED_REASON
 
 INVARIANT_YAML = """\
 - id: AUTH-ADMIN-001
@@ -23,19 +20,6 @@ INVARIANT_YAML = """\
     - /admin/users
     - /admin/settings
 """
-
-
-def _commit(repo: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
-
-
-def _setup_repo(git_repo: Path) -> tuple[Path, Path]:
-    invariant = git_repo / "invariants" / "auth-admin-001.yaml"
-    invariant.parent.mkdir(parents=True, exist_ok=True)
-    invariant.write_text(INVARIANT_YAML, encoding="utf-8")
-    _commit(git_repo, "add", "invariants")
-    _commit(git_repo, "commit", "-qm", "add invariant")
-    return invariant, git_repo / "approvals.yaml"
 
 
 def _approve(invariant: Path, approvals: Path) -> None:
@@ -49,124 +33,112 @@ def _approve(invariant: Path, approvals: Path) -> None:
     )
 
 
-def _verify_args(invariant: Path, approvals: Path, repo: Path, *extra: str) -> list[str]:
-    return [
+def _commit(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def _verify(staged: Any, *extra: str) -> subprocess.CompletedProcess[str]:
+    proc: subprocess.CompletedProcess[str] = staged.run(
         "verify",
-        str(invariant),
+        str(staged.invariant),
         "--revision",
         "HEAD",
         "--repo",
-        str(repo),
+        str(staged.root),
         "--approvals",
-        str(approvals),
+        str(staged.approvals),
         *extra,
-    ]
-
-
-def test_repaired_passes_exit_zero(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    invariant, approvals = _setup_repo(git_repo)
-    _approve(invariant, approvals)
-    code = main(_verify_args(invariant, approvals, git_repo, "--target", "repaired"))
-    out = capsys.readouterr().out
-    assert code == 0
-    assert "verdict: PASSED" in out
-    assert re.search(r"revision: [0-9a-f]{40}", out)
-    assert "config-digest:" in out and "attestation:" in out
-    assert "coverage: established" in out
-
-
-def test_vulnerable_fails_exit_one(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    invariant, approvals = _setup_repo(git_repo)
-    _approve(invariant, approvals)
-    code = main(_verify_args(invariant, approvals, git_repo, "--target", "vulnerable"))
-    out = capsys.readouterr().out
-    assert code == 1
-    assert "verdict: FAILED" in out
-
-
-def test_hanging_is_inconclusive_exit_two(
-    git_repo: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    invariant, approvals = _setup_repo(git_repo)
-    _approve(invariant, approvals)
-    code = main(
-        _verify_args(invariant, approvals, git_repo, "--target", "hanging", "--timeout", "2")
     )
-    out = capsys.readouterr().out
-    assert code == 2
-    assert "verdict: INCONCLUSIVE" in out
+    return proc
 
 
-def test_crashing_is_inconclusive(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    invariant, approvals = _setup_repo(git_repo)
-    _approve(invariant, approvals)
-    code = main(_verify_args(invariant, approvals, git_repo, "--target", "crashing"))
-    assert code == 2
+def test_repaired_passes_exit_zero(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    proc = _verify(staged_repo, "--target", "repaired")
+    assert proc.returncode == 0, proc.stderr
+    assert "verdict: PASSED" in proc.stdout
+    assert re.search(r"revision: [0-9a-f]{40}", proc.stdout)
+    assert "config-digest:" in proc.stdout and "attestation:" in proc.stdout
+    assert "coverage: established" in proc.stdout
 
 
-def test_unapproved_is_refused(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    invariant, approvals = _setup_repo(git_repo)
-    code = main(_verify_args(invariant, approvals, git_repo))
-    err = capsys.readouterr().err
-    assert code == 3
-    assert "no approval" in err
+def test_vulnerable_fails_exit_one(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    proc = _verify(staged_repo, "--target", "vulnerable")
+    assert proc.returncode == 1, proc.stderr
+    assert "verdict: FAILED" in proc.stdout
 
 
-def test_tampered_content_is_refused(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    invariant, approvals = _setup_repo(git_repo)
-    _approve(invariant, approvals)
-    invariant.write_text(INVARIANT_YAML.replace("reject", "allow"), encoding="utf-8")
-    _commit(git_repo, "add", "invariants")
-    _commit(git_repo, "commit", "-qm", "tamper")
-    code = main(_verify_args(invariant, approvals, git_repo))
-    err = capsys.readouterr().err
-    assert code == 3
-    assert "does not match" in err
+def test_incomplete_repair_fails_exit_one(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    proc = _verify(staged_repo, "--target", "incomplete")
+    assert proc.returncode == 1, proc.stderr
+    assert "verdict: FAILED" in proc.stdout
 
 
-def test_dirty_tree_is_refused(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    invariant, approvals = _setup_repo(git_repo)
-    _approve(invariant, approvals)
-    invariant.write_text(INVARIANT_YAML + "# scratch\n", encoding="utf-8")
-    code = main(_verify_args(invariant, approvals, git_repo))
-    err = capsys.readouterr().err
-    assert code == 3
-    assert "uncommitted" in err
+def test_hanging_is_inconclusive_exit_two(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    proc = _verify(staged_repo, "--target", "hanging", "--timeout", "2")
+    assert proc.returncode == 2, proc.stderr
+    assert "verdict: INCONCLUSIVE" in proc.stdout
 
 
-def test_head_mismatch_is_refused(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    invariant, approvals = _setup_repo(git_repo)
-    _approve(invariant, approvals)
-    _commit(git_repo, "commit", "-q", "--allow-empty", "-m", "second")
-    code = main(
-        [
-            "verify",
-            str(invariant),
-            "--revision",
-            "HEAD~1",
-            "--repo",
-            str(git_repo),
-            "--approvals",
-            str(approvals),
-        ]
+def test_crashing_is_inconclusive(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    proc = _verify(staged_repo, "--target", "crashing")
+    assert proc.returncode == 2, proc.stderr
+    assert "verdict: INCONCLUSIVE" in proc.stdout
+
+
+def test_unapproved_is_refused(staged_repo: Any) -> None:
+    proc = _verify(staged_repo)
+    assert proc.returncode == 3
+    assert "no approval" in proc.stderr
+
+
+def test_tampered_content_is_refused(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    staged_repo.invariant.write_text(INVARIANT_YAML.replace("reject", "allow"), encoding="utf-8")
+    _commit(staged_repo.root, "add", "invariants")
+    _commit(staged_repo.root, "commit", "-qm", "tamper")
+    proc = _verify(staged_repo)
+    assert proc.returncode == 3
+    assert "does not match" in proc.stderr
+
+
+def test_dirty_tree_is_refused(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    staged_repo.invariant.write_text(INVARIANT_YAML + "# scratch\n", encoding="utf-8")
+    proc = _verify(staged_repo)
+    assert proc.returncode == 3
+    assert "uncommitted" in proc.stderr
+
+
+def test_head_mismatch_is_refused(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    _commit(staged_repo.root, "commit", "-q", "--allow-empty", "-m", "second")
+    proc = staged_repo.run(
+        "verify",
+        str(staged_repo.invariant),
+        "--revision",
+        "HEAD~1",
+        "--repo",
+        str(staged_repo.root),
+        "--approvals",
+        str(staged_repo.approvals),
     )
-    err = capsys.readouterr().err
-    assert code == 3
-    assert "check out" in err
+    assert proc.returncode == 3
+    assert "check out" in proc.stderr
 
 
-def test_json_output_valid_and_deterministic(
-    git_repo: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    invariant, approvals = _setup_repo(git_repo)
-    _approve(invariant, approvals)
-    args = _verify_args(invariant, approvals, git_repo, "--format", "json")
-    assert main(args) == 0
-    first = capsys.readouterr().out
-    assert main(args) == 0
-    second = capsys.readouterr().out
-    assert first == second
-    payload = json.loads(first)
+def test_json_output_valid_and_deterministic(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    first = _verify(staged_repo, "--format", "json")
+    assert first.returncode == 0, first.stderr
+    second = _verify(staged_repo, "--format", "json")
+    assert second.returncode == 0, second.stderr
+    assert first.stdout == second.stdout
+    payload = json.loads(first.stdout)
     assert payload["schema_version"] == 1
     assert payload["verdict"] == "PASSED"
     assert re.fullmatch(r"[0-9a-f]{40}", payload["revision"])
@@ -175,22 +147,21 @@ def test_json_output_valid_and_deterministic(
     assert payload["scope"]["coverage"] == "established"
 
 
-def test_snapshot_change_overrides_to_inconclusive(
-    git_repo: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    invariant, approvals = _setup_repo(git_repo)
-    _approve(invariant, approvals)
-    calls: list[str] = []
-
-    def fake_fingerprint(repo: Path, paths: tuple[str, ...] = ("src",)) -> str:
-        del repo, paths
-        calls.append("x")
-        return "before" if len(calls) == 1 else "after"
-
-    monkeypatch.setattr("apps.verify.fingerprint", fake_fingerprint)
-    code = main(_verify_args(invariant, approvals, git_repo))
-    out = capsys.readouterr().out
-    assert code == 2
-    assert "verdict: INCONCLUSIVE" in out
-    assert "snapshot-changed: true" in out
-    assert SNAPSHOT_CHANGED_REASON in out
+def test_inputs_outside_repo_are_refused(staged_repo: Any, tmp_path: Path) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    outside_dir = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside_dir.mkdir(parents=True, exist_ok=True)
+    outsider = outside_dir / "elsewhere.yaml"
+    outsider.write_text(INVARIANT_YAML, encoding="utf-8")
+    proc = staged_repo.run(
+        "verify",
+        str(outsider),
+        "--revision",
+        "HEAD",
+        "--repo",
+        str(staged_repo.root),
+        "--approvals",
+        str(staged_repo.approvals),
+    )
+    assert proc.returncode == 3
+    assert "outside the repository tree" in proc.stderr

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from apps.verify import SNAPSHOT_CHANGED_REASON, apply_snapshot_override
 from attest_core.invariants import create_approval
 from attest_core.verification import (
     AttemptReport,
@@ -78,6 +79,26 @@ def test_all_pass_yields_passed() -> None:
 def test_all_violation_yields_failed() -> None:
     run_checks, _ = _scripted([AttemptOutcome.VIOLATION] * 3)
     assert _verify(run_checks).verdict == Verdict.FAILED
+
+
+def test_snapshot_override_discards_verdict_but_keeps_evidence() -> None:
+    run_checks, _ = _scripted([AttemptOutcome.PASS] * 3)
+    invariant = _invariant()
+    original = run_verification(
+        invariant=invariant,
+        approval=_approval(invariant),
+        revision=REVISION,
+        settings=SETTINGS,
+        run_checks=run_checks,
+    )
+    assert original.verdict == Verdict.PASSED
+    overridden = apply_snapshot_override(original, invariant)
+    assert overridden.verdict == Verdict.INCONCLUSIVE
+    assert overridden.reason == SNAPSHOT_CHANGED_REASON
+    assert overridden.evidence == original.evidence
+    assert overridden.attempts == original.attempts
+    assert overridden.attestation.statement == SNAPSHOT_CHANGED_REASON
+    assert overridden.attestation.verdict == Verdict.INCONCLUSIVE.value
 
 
 def test_crash_yields_inconclusive() -> None:

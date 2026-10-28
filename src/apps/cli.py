@@ -62,7 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--revision", required=True, help="git revision under test")
     verify.add_argument("--approvals", type=Path, default=Path(DEFAULT_APPROVALS_FILE))
     verify.add_argument("--id", default=None, help="select one invariant from the file")
-    verify.add_argument("--repo", type=Path, default=Path.cwd())
+    verify.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="repository root under test (must be the work-tree top level)",
+    )
     verify.add_argument("--target", choices=TARGETS, default="repaired")
     verify.add_argument("--timeout", type=float, default=60.0)
     verify.add_argument("--format", choices=("text", "json"), default="text")
