@@ -30,7 +30,11 @@ from attest_core.origin import (
     resolve_repo_root,
     verify_code_origin,
 )
-from attest_core.runtime import check_environment, collect_runtime_settings
+from attest_core.runtime import (
+    check_environment,
+    check_root_startup_modules,
+    collect_runtime_settings,
+)
 from attest_core.verdicts import REQUIRED_ATTEMPTS
 from attest_core.verification import AttemptReport, VerificationReport, run_verification
 from attest_spec import Invariant, Verdict
@@ -102,6 +106,10 @@ def run_verify(
     if output_format not in ("text", "json"):
         raise VerifyError(f"unknown format: {output_format}")
     root = resolve_repo_root(repo)
+    # Pre-spawn preflight: refuse hostile startup modules before the first
+    # child process (the origin probe) can execute them. Nothing above this
+    # line spawns a Python interpreter; keep it that way.
+    check_root_startup_modules(root)
     invariant_file = require_within_root(invariant_file, root, "invariant file")
     approvals_file = require_within_root(approvals_file, root, "approvals file")
     invariant = select_invariant(load_definitions(invariant_file), invariant_id)

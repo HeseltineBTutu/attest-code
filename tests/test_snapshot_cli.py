@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import io
+import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from apps.review import run_review
+from examples import admin_authorization as admin_checks
 
 
 def _approve(invariant: Path, approvals: Path) -> None:
@@ -41,6 +46,14 @@ def _verify(staged: Any, *extra: str, env: Any = None) -> subprocess.CompletedPr
         env=env,
     )
     return proc
+
+
+def test_root_startup_module_is_refused_end_to_end(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    (staged_repo.root / "sitecustomize.py").write_text("x = 1\n", encoding="utf-8")
+    proc = _verify(staged_repo)
+    assert proc.returncode == 3
+    assert "exists at the repository root" in proc.stderr
 
 
 def test_dirty_lockfile_is_refused(staged_repo: Any) -> None:
@@ -91,3 +104,100 @@ def test_clean_manifests_still_pass(staged_repo: Any) -> None:
     proc = _verify(staged_repo, "--target", "repaired")
     assert proc.returncode == 0, proc.stderr
     assert "verdict: PASSED" in proc.stdout
+
+
+def _startup_import_active(tmp_path: Path, name: str) -> bool:
+    """Probe whether a fresh `-c` interpreter autoimports `<name>.py` via PYTHONPATH."""
+    probe_dir = tmp_path / f"startup-probe-{name}"
+    probe_dir.mkdir(exist_ok=True)
+    marker = probe_dir / "marker.txt"
+    if marker.exists():
+        marker.unlink()
+    (probe_dir / f"{name}.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran\\n')\n",
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(probe_dir)
+    proc = subprocess.run(
+        [sys.executable, "-c", "pass"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    return proc.returncode == 0 and marker.exists()
+
+
+@pytest.mark.parametrize("name", ["sitecustomize", "usercustomize"])
+def test_root_startup_module_refused_before_worker_spawn(
+    staged_repo: Any, tmp_path: Path, name: str
+) -> None:
+    if not _startup_import_active(tmp_path, name):
+        pytest.skip(f"{name} autoimport is inactive on this interpreter")
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    marker = tmp_path / f"{name}.marker.jsonl"
+    (staged_repo.root / f"{name}.py").write_text(
+        "import json, sys\n"
+        f"with open({str(marker)!r}, 'a') as fh:\n"
+        "    fh.write(json.dumps(sys.argv) + '\\n')\n",
+        encoding="utf-8",
+    )
+    proc = _verify(
+        staged_repo,
+        env={"PYTHONPATH": os.pathsep.join([str(staged_repo.root), str(staged_repo.src)])},
+    )
+    assert proc.returncode == 3
+    assert f"{name}.py exists at the repository root" in proc.stderr
+    runs = [json.loads(line) for line in marker.read_text(encoding="utf-8").splitlines()]
+    assert runs, "startup module never executed; mechanism probe disagreed with the run"
+    for argv in runs:
+        assert argv[1:2] == ["verify"], f"non-parent process executed startup code: {argv}"
+
+
+def test_self_deleting_startup_module_is_refused(staged_repo: Any, tmp_path: Path) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    target = staged_repo.root / "sitecustomize.py"
+    marker = tmp_path / "self-delete.marker.txt"
+    target.write_text(
+        f"import os\nopen({str(marker)!r}, 'w').write('ran\\n')\nos.unlink({str(target)!r})\n",
+        encoding="utf-8",
+    )
+    proc = _verify(
+        staged_repo,
+        env={"PYTHONPATH": os.pathsep.join([str(staged_repo.root), str(staged_repo.src)])},
+    )
+    assert proc.returncode == 3
+    assert "verdict" not in proc.stdout
+    if marker.exists():
+        assert not target.exists()
+        assert "was already imported from the repository tree" in proc.stderr
+    else:
+        assert "exists at the repository root" in proc.stderr
+
+
+def test_dangling_startup_symlink_is_refused(staged_repo: Any) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    (staged_repo.root / "sitecustomize.py").symlink_to(staged_repo.root / "no-such-target.py")
+    proc = _verify(staged_repo)
+    assert proc.returncode == 3
+    assert "exists at the repository root" in proc.stderr
+
+
+def test_startup_preflight_precedes_origin_diagnostics(staged_repo: Any, tmp_path: Path) -> None:
+    _approve(staged_repo.invariant, staged_repo.approvals)
+    (staged_repo.root / "sitecustomize.py").write_text("x = 1\n", encoding="utf-8")
+    shadow = tmp_path / "shadow" / "examples"
+    shadow.mkdir(parents=True)
+    (shadow / "__init__.py").write_text("", encoding="utf-8")
+    assert isinstance(admin_checks.__file__, str)
+    shutil.copy(admin_checks.__file__, shadow / "admin_authorization.py")
+    proc = _verify(
+        staged_repo,
+        env={"PYTHONPATH": os.pathsep.join([str(shadow.parent), str(staged_repo.src)])},
+    )
+    assert proc.returncode == 3
+    assert "exists at the repository root" in proc.stderr
+    assert "outside the repository tree" not in proc.stderr

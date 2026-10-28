@@ -18,9 +18,10 @@
   wall-clock deadlines (bounding, not a sandbox).
 - `attest_core.origin` (implemented): repository-root canonicalization,
   input containment, and parent/worker module-origin binding.
-- `attest_core.runtime` (implemented): import-override validation and
-  deterministic runtime settings (interpreter, `PYTHONPATH`, manifest hashes)
-  bound into the configuration digest.
+- `attest_core.runtime` (implemented): import-override and root startup-module
+  validation (a pre-spawn preflight plus an already-imported tripwire), plus
+  deterministic runtime settings (interpreter, `PYTHONPATH`, installed
+  versions, manifest hashes) bound into the configuration digest.
 - `attest_core.sandbox` (planned): execution isolation and resource limits.
 - `apps.cli` (implemented): argparse entry point mapping outcomes to exit
   codes; no CLI framework dependency.

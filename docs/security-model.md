@@ -97,19 +97,40 @@
   against the working directory; nonexistent entries are still refused so
   they cannot be planted mid-run). Anything else fails closed with an
   integrity error (exit 3).
+- Autoimported startup modules tied to the repository root are refused by
+  a preflight that runs before the first child process is spawned: a
+  `sitecustomize.py` or `usercustomize.py` present as a file or symlink
+  (tracked, untracked, ignored, or dangling) aborts verification, as does
+  an already-imported startup module attributable to the tree (e.g. a file
+  that executed and deleted itself during interpreter startup).
+  The preflight cannot reverse code that already ran: a startup module
+  executed in the parent before `main()` — via the working directory under
+  cwd-on-path entry points, or via `PYTHONPATH` entries resolving to the
+  root — may already have altered interpreter state or scrubbed its traces
+  (deleted file, cleaned `sys.modules`), which no in-process check can
+  detect. Supported invocation is the installed `attest` console script
+  with an operator-controlled environment; running verification from a
+  hostile tree via `python -c`/`-m`, a script, or pytest is outside the
+  trusted-launch boundary. Startup hooks inside `site` directories, `.pth`
+  handling, and `usercustomize` under `HOME` remain trusted computing base
+  (a writer there already owns the interpreter). `PYTHONSTARTUP` is inert
+  (workers are never interactive).
 - The run configuration digest additionally binds the Python
-  implementation/version, the normalized `PYTHONPATH`, and the SHA-256 of
-  `pyproject.toml`, `uv.lock`, `.gitignore`, and `.gitattributes`
+  implementation/version, the normalized `PYTHONPATH`, the installed
+  versions of the runtime dependency closure (`deps.*`, discovered from
+  the installed distribution metadata; `absent` when missing), and the
+  SHA-256 of `pyproject.toml`, `uv.lock`, `.gitignore`, and `.gitattributes`
   (`absent` when missing).
   The same settings object feeds all three attempts, so intra-run config
   drift is impossible by construction; a changed environment produces a
   different digest rather than a comparable verdict.
-- Explicitly not claimed: the lockfile hash records which lockfile was
-  present, not that installed packages match it. Installed-dependency
-  verification, full worker-environment scrubbing, and the `git` binary on
-  `PATH` itself remain trusted computing base, as do `.git/config`,
-  filter drivers, hooks, and submodule contents (only the gitlink pointer
-  is observed).
+- Explicitly not claimed: recorded versions describe the environment but
+  are not compared against `uv.lock`, so the lockfile hash records which
+  lockfile was present, not that installed packages match it.
+  Installed-dependency verification, full worker-environment scrubbing,
+  and the `git` binary on `PATH` itself remain trusted computing base,
+  as do `.git/config`, filter drivers, hooks, and submodule contents
+  (only the gitlink pointer is observed).
 
 ### Remaining origin limitations
 

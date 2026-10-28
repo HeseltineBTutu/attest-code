@@ -13,11 +13,24 @@ from __future__ import annotations
 import hashlib
 import os
 import platform
+import re
+import sys
 from collections.abc import Mapping
+from importlib import metadata as importlib_metadata
 from pathlib import Path
 
 DENIED_ENV_VARS = ("PYTHONHOME",)
 """Environment variables that relocate the interpreter; always refused."""
+
+DENIED_ROOT_MODULES = ("sitecustomize.py", "usercustomize.py")
+"""Auto-imported startup modules that must not be tied to the repository root.
+
+`site` imports these by name during interpreter startup — before any
+verifier check runs — whenever they are importable (notably from the
+working directory or `PYTHONPATH`). Files at the root are refused on
+presence; a module already imported from the tree trips the loaded-module
+check. Traces scrubbed before the check runs are undetectable in-process.
+"""
 
 BOUND_CONFIG_FILES = ("pyproject.toml", "uv.lock", ".gitignore", ".gitattributes")
 """Manifest files whose content hash is bound into the configuration digest."""
@@ -43,12 +56,55 @@ def _entries_within_root(value: str, root: Path) -> str:
     return os.pathsep.join(resolved_entries)
 
 
+def _loaded_startup_source(root: Path, module: str) -> str | None:
+    """Explain why an already-imported startup module is suspect, if it is.
+
+    A `sitecustomize`/`usercustomize` entry in `sys.modules` executed during
+    interpreter startup, before any verifier check could run. Refuse it when
+    attributable to the attested tree — e.g. a file that ran and deleted
+    itself — or when it cannot be attributed elsewhere. A module that ran
+    and then scrubbed its import traces is undetectable in-process.
+    """
+    loaded = sys.modules.get(module)
+    if loaded is None:
+        return None
+    file = getattr(loaded, "__file__", None)
+    if not isinstance(file, str) or not file:
+        return f"{module} is already imported from an unknown location"
+    try:
+        inside = Path(file).resolve().is_relative_to(root.resolve())
+    except OSError:
+        return f"{module} is already imported from an unknown location"
+    if inside:
+        return f"{module} was already imported from the repository tree"
+    return None
+
+
+def check_root_startup_modules(root: Path) -> None:
+    """Refuse auto-imported startup modules tied to the repository root.
+
+    Call before the first child process is spawned: persistent files and
+    symlinks (including dangling ones) are refused on presence, and an
+    already-imported module attributable to the tree trips the
+    loaded-module check. Code that executed before this check and scrubbed
+    its traces cannot be detected in-process (see security-model.md).
+    """
+    for name in DENIED_ROOT_MODULES:
+        if os.path.lexists(root / name):
+            raise RuntimeConfigError(f"{name} exists at the repository root; refusing to verify")
+    for name in DENIED_ROOT_MODULES:
+        reason = _loaded_startup_source(root, name.removesuffix(".py"))
+        if reason is not None:
+            raise RuntimeConfigError(f"{reason}; refusing to verify")
+
+
 def check_environment(root: Path, environ: Mapping[str, str] | None = None) -> str:
     """Validate import-affecting overrides; return the normalized PYTHONPATH."""
     env = os.environ if environ is None else environ
     for name in DENIED_ENV_VARS:
         if env.get(name):
             raise RuntimeConfigError(f"{name} is set; refusing to verify")
+    check_root_startup_modules(root)
     return _entries_within_root(env.get("PYTHONPATH", ""), root)
 
 
@@ -60,6 +116,35 @@ def _file_digest(root: Path, name: str) -> str:
     except OSError as exc:
         raise RuntimeConfigError(f"cannot read {name}: {exc}") from exc
     return hashlib.sha256(data).hexdigest()
+
+
+def _installed_versions() -> dict[str, str]:
+    """Record installed versions for the runtime dependency closure.
+
+    Requirement names come from the installed distribution metadata, so the
+    record describes the environment that actually governs execution. Names
+    are used as declared (environment markers are not evaluated); a missing
+    distribution records "absent" rather than failing.
+    """
+    versions = {"deps.attest-code": _installed_version("attest-code")}
+    try:
+        requires = importlib_metadata.requires("attest-code")
+    except importlib_metadata.PackageNotFoundError:
+        return versions
+    for requirement in requires or []:
+        bare = re.split(r"[;<>!=~\s\[]", requirement, maxsplit=1)[0].strip()
+        if not bare:
+            continue
+        name = re.sub(r"[-_.]+", "-", bare).lower()
+        versions[f"deps.{name}"] = _installed_version(bare)
+    return versions
+
+
+def _installed_version(distribution: str) -> str:
+    try:
+        return importlib_metadata.version(distribution)
+    except importlib_metadata.PackageNotFoundError:
+        return "absent"
 
 
 def collect_runtime_settings(
@@ -74,4 +159,5 @@ def collect_runtime_settings(
     }
     for name in BOUND_CONFIG_FILES:
         settings[f"{name}.sha256"] = _file_digest(root, name)
+    settings.update(_installed_versions())
     return settings
