@@ -36,7 +36,7 @@ from attest_core.sandbox import (
 from attest_core.verification import AttemptReport, CheckEvidence, run_verification
 from attest_spec import ApprovalRecord, AttemptOutcome, Invariant
 
-CHECKOUT_ROOT = Path(__file__).resolve().parent.parent
+CHECKOUT_ROOT = Path(__file__).resolve().parents[3]  # tests/test_src/test_attest_core/
 
 SENSITIVE_VARS = (
     "MODEL_API_KEY",

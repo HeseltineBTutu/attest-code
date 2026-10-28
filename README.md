@@ -90,19 +90,21 @@ Prerequisites: Python >= 3.11 and `uv`.
 export UV_CACHE_DIR=/tmp/uv-cache  # only if the default uv cache is read-only
 uv sync --group dev
 uv run pytest
+uv run pytest tests/test_line_limit.py -q  # 200-line limit gate (also enforced in full suite)
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run mypy src tests
 ```
 
-Run just the vertical slice: `uv run pytest tests/test_admin_authorization.py -q`.
-Run the CLI suites: `uv run pytest tests/test_review.py tests/test_verify_cli.py -q`.
+Run just the vertical slice: `uv run pytest tests/test_integration/test_admin_authorization.py -q`.
+Run the CLI suites: `uv run pytest tests/test_src/test_apps/test_review.py tests/test_cli/test_verify_cli.py -q`.
 
 ## Documents
 
 - `docs/architecture.md`: module boundaries and data flow.
 - `docs/security-model.md`: trust boundaries, approval design, and limitations.
 - `docs/hackathon-scope.md`: implemented vs planned work.
+- `docs/testing.md`: test organisation, executable documentation, and quality gates.
 
 ## Security notes
 
