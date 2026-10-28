@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from apps.verify import SNAPSHOT_CHANGED_REASON, apply_snapshot_override
-from attest_core.invariants import create_approval
+from attest_core.evidence import verify_attestation
+from attest_core.invariants import create_approval, invariant_content_digest
 from attest_core.verification import (
     AttemptReport,
     CheckEvidence,
@@ -148,3 +149,23 @@ def test_evidence_records_revision_config_and_attempts() -> None:
 def test_empty_revision_is_inconclusive() -> None:
     run_checks, _ = _scripted([AttemptOutcome.PASS] * 3)
     assert _verify(run_checks, revision="").verdict == Verdict.INCONCLUSIVE
+
+
+def test_emitted_attestation_validates_against_verified_content() -> None:
+    run_checks, _ = _scripted([AttemptOutcome.PASS] * 3)
+    invariant = _invariant()
+    report = run_verification(
+        invariant=invariant,
+        approval=_approval(invariant),
+        revision=REVISION,
+        settings=SETTINGS,
+        run_checks=run_checks,
+    )
+    assert report.attestation.content_digest == invariant_content_digest(invariant)
+    checked = verify_attestation(
+        report.attestation.to_payload(),
+        invariant,
+        report.attestation.digest(),
+        report.evidence,
+    )
+    assert checked == report.attestation

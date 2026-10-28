@@ -63,7 +63,9 @@ in main dependencies as a provisional hackathon simplification.
    per-attempt evidence records.
 8. A post-run fingerprint mismatch overrides any verdict with INCONCLUSIVE.
 9. The verdict policy classifies the attempt set as PASSED, FAILED, or
-   INCONCLUSIVE; an attestation references every evidence hash.
+   INCONCLUSIVE; an attestation references every evidence hash and commits
+   to the exact invariant content verified (`verify_attestation` checks
+   both the integrity digest and the content binding).
 
 ## Model boundary
 

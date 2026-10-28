@@ -20,7 +20,11 @@ from apps.output import render_json, render_text
 from attest_core.bounds import run_bounded
 from attest_core.evidence import ATTESTATION_SCHEMA_VERSION, Attestation
 from attest_core.git import check_snapshot, fingerprint
-from attest_core.invariants import is_approval_valid, load_definitions
+from attest_core.invariants import (
+    invariant_content_digest,
+    is_approval_valid,
+    load_definitions,
+)
 from attest_core.origin import (
     require_within_root,
     resolve_repo_root,
@@ -53,6 +57,7 @@ def apply_snapshot_override(report: VerificationReport, invariant: Invariant) ->
             verdict=Verdict.INCONCLUSIVE.value,
             invariant_id=invariant.invariant_id,
             invariant_version=invariant.version,
+            content_digest=invariant_content_digest(invariant),
             evidence_hashes=tuple(record.digest() for record in report.evidence),
             statement=SNAPSHOT_CHANGED_REASON,
         ),

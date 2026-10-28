@@ -25,7 +25,7 @@ from attest_core.evidence import (
     canonical_bytes,
     sha256_hex,
 )
-from attest_core.invariants import is_approval_valid
+from attest_core.invariants import invariant_content_digest, is_approval_valid
 from attest_core.verdicts import REQUIRED_ATTEMPTS, VerificationAttempt, classify_with_reason
 from attest_spec import ApprovalRecord, AttemptOutcome, Invariant, Verdict
 
@@ -137,6 +137,7 @@ def run_verification(
         verdict=verdict.value,
         invariant_id=invariant.invariant_id,
         invariant_version=invariant.version,
+        content_digest=invariant_content_digest(invariant),
         evidence_hashes=tuple(item.digest() for item in evidence),
         statement=reason,
     )
