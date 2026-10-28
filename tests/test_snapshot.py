@@ -345,3 +345,34 @@ def test_prepare_worker_sys_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert "" not in sys.path
     assert not any(entry.startswith(str(live)) for entry in sys.path)
     assert str(elsewhere) in sys.path
+
+
+def test_prepare_worker_sys_path_keeps_in_repo_site_packages(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """In-repo venv dependencies survive stripping; live project code does not.
+
+    Without the dependency-directory exemption, an in-repository `.venv`
+    loses its `site-packages` from worker `sys.path` and spawned workers
+    fail third-party imports (`ModuleNotFoundError: yaml`).
+    """
+    live = tmp_path / "live"
+    (live / "src").mkdir(parents=True)
+    site_packages = live / ".venv" / "lib" / "python3.11" / "site-packages"
+    site_packages.mkdir(parents=True)
+    dist_packages = live / ".venv" / "lib" / "python3" / "dist-packages"
+    dist_packages.mkdir(parents=True)
+    snap = tmp_path / "snap" / "src"
+    snap.mkdir(parents=True)
+    monkeypatch.setattr(
+        sys,
+        "path",
+        ["", str(live / "src"), str(live), str(site_packages), str(dist_packages)],
+    )
+    prepare_worker_sys_path(snap, live)
+    assert sys.path[0] == str(snap)
+    assert str(site_packages) in sys.path
+    assert str(dist_packages) in sys.path
+    assert str(live / "src") not in sys.path
+    assert str(live) not in sys.path
+    assert "" not in sys.path

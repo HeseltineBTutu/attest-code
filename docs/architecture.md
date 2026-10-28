@@ -34,7 +34,9 @@
 - `apps.output` (implemented): text and versioned JSON report rendering.
 - `apps.demo_api` (implemented): synthetic FastAPI fixtures and the
   registered-route inventory.
-- `integrations.meta_models` (planned): isolated Meta model client boundary.
+- `integrations.meta_models` (implemented): isolated Meta model client
+  boundary for diagnose-and-propose-patch. Requires a FAILED report;
+  model output is untrusted and never verdicts, writes, or applies.
 - `examples.admin_authorization` (implemented): approved checks for
   AUTH-ADMIN-001 with fail-closed scope coverage.
 - `invariants/auth-admin-001.yaml` (implemented): the invariant definition.

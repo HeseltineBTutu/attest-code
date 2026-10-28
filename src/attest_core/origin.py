@@ -28,6 +28,16 @@ from attest_core.git import RELEVANT_PATHS, GitError, repo_root
 EXPECTED_PACKAGES = ("attest_spec", "attest_core", "apps", "examples", "integrations")
 """First-party packages whose origin must be inside the attested tree."""
 
+_DEPENDENCY_DIR_NAMES = frozenset({"site-packages", "dist-packages"})
+"""Directory names marking third-party dependency locations.
+
+A `sys.path` entry resolving inside one of these directories holds
+operator-owned interpreter dependencies, never first-party project code.
+Such entries are exempt from live-root stripping so spawned workers keep
+their third-party imports (notably with an in-repository `.venv`, whose
+`site-packages` resolves under the live root).
+"""
+
 _PROBE_GRACE_SECONDS = 10
 
 
@@ -173,13 +183,30 @@ def verify_code_origin(root: Path, timeout_seconds: float) -> OriginReport:
     return OriginReport(root=root, parent=parent, worker=worker)
 
 
+def _is_dependency_search_path(resolved: Path) -> bool:
+    """Whether a resolved `sys.path` entry is a dependency directory.
+
+    Detection is structural (a `site-packages`/`dist-packages` path segment)
+    rather than prefix-based so it also covers environments injected via
+    `PYTHONPATH`. The exemption is safe because the entries it preserves
+    come from the operator-owned interpreter environment — contributors
+    cannot add `sys.path` entries — and first-party names still cannot
+    resolve outside the snapshot: snapshot `src` is prepended first, and
+    the origin checks fail closed on any fallback.
+    """
+    return any(part in _DEPENDENCY_DIR_NAMES for part in resolved.parts)
+
+
 def prepare_worker_sys_path(snapshot_src: Path, live_root: Path) -> None:
     """Point this process's import path at the snapshot for future children.
 
     Spawn children inherit the parent's `sys.path` wholesale, so strip the
     empty entry and every entry resolving under the live root, then prepend
-    the snapshot source directory. Mutates process-global state; the CLI
-    invokes verification once per process (see security-model.md).
+    the snapshot source directory. Dependency directories (`site-packages`
+    / `dist-packages`, including an in-repository `.venv`) are exempt from
+    stripping: without them, spawned workers lose third-party imports.
+    Mutates process-global state; the CLI invokes verification once per
+    process (see security-model.md).
     """
     live = live_root.resolve()
     kept: list[str] = []
@@ -187,9 +214,10 @@ def prepare_worker_sys_path(snapshot_src: Path, live_root: Path) -> None:
         if not entry:
             continue
         try:
-            if Path(entry).resolve().is_relative_to(live):
-                continue
+            resolved = Path(entry).resolve()
         except OSError:
+            continue
+        if resolved.is_relative_to(live) and not _is_dependency_search_path(resolved):
             continue
         kept.append(entry)
     sys.path[:] = [str(snapshot_src), *kept]

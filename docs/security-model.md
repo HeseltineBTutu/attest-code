@@ -287,11 +287,21 @@ Keep these four distinctions separate when reading any verdict:
   machine without execution isolation, so they catch flaky or
   non-reproducible results but cannot prove determinism.
 
-## Model-data hygiene (planned integration)
+## Model-data hygiene (implemented integration)
 
-- Keep model calls separate from verification execution.
-- Never send secrets, private credentials, or unrelated repository contents.
-- Send only the failing invariant id/version, the minimal failing evidence
-  excerpt, and the implicated code region.
-- Mock results must never be presented as evidence of a real Meta API
-  integration.
+- Model calls stay separate from verification execution:
+  `integrations.meta_models` consumes a FAILED verify report and an
+  operator-selected excerpt only.
+- Only bounded diagnostic inputs are sent (invariant id/version/text, a
+  sanitized FAILED summary, the excerpt). Secrets, private credentials,
+  and unrelated repository contents are never sent; contributor model
+  variants are refused.
+- Model output is untrusted: replies must carry separate diagnosis and
+  diff fields, diffs are structurally validated and scope-confined, and
+  proposals render UNVERIFIED for human review. Nothing is applied
+  automatically.
+- Diagnose input is shape-validated, not attestation-verified; it
+  influences only the diagnostic prompt, never any verdict or evidence.
+- Mocked unit tests never establish live API availability. Only model
+  enumeration (`GET /models`) has been verified live; generation
+  behavior remains unverified.
