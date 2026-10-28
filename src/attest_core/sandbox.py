@@ -49,6 +49,9 @@ _WORKER_ENV_KEEP = frozenset({"PYTHONPYCACHEPREFIX"})
 _WIN32_ENV_KEEP = frozenset({"SYSTEMROOT", "TEMP", "TMP"})
 """Variables the Windows CRT/stdlib demonstrably require in children."""
 
+_SPAWN_GUARD_STATE = threading.local()
+"""Reentrancy flag: nested `guarded_spawn` would corrupt the parent's state."""
+
 
 class SandboxError(Exception):
     """A worker sandbox precondition was violated; fail closed, never verdict."""
@@ -56,13 +59,14 @@ class SandboxError(Exception):
 
 @dataclasses.dataclass(frozen=True)
 class SandboxWorkdir:
-    """Per-worker controlled directory: cwd, result, capture, and cache."""
+    """Per-worker controlled directory: cwd, result, capture, cache, group id."""
 
     root: Path
     result: Path
     stdout: Path
     stderr: Path
     pycache: Path
+    pgid: Path
 
 
 def _allowed_env_keys() -> frozenset[str]:
@@ -106,6 +110,7 @@ def prepare_workdir() -> SandboxWorkdir:
         stdout=root / "stdout.log",
         stderr=root / "stderr.log",
         pycache=cache,
+        pgid=root / "pgid",
     )
 
 
@@ -137,42 +142,38 @@ def guarded_spawn(
     child execs. Spawning is main-thread-only: process-global swaps are
     unsafe under concurrency, and no supported caller is threaded.
     Yields the live process; supervision and cleanup stay with the caller.
+    Nested use is refused: an inner call would restore its caller's mutated
+    state at the wrong time.
     """
     if threading.current_thread() is not threading.main_thread():
         raise SandboxError("worker spawning is only supported from the main thread")
-    saved_env = dict(os.environ)
-    saved_cwd = os.getcwd()
-    ctx = multiprocessing.get_context("spawn")
-    proc = ctx.Process(target=target, args=args, daemon=True)
+    if getattr(_SPAWN_GUARD_STATE, "active", False):
+        raise SandboxError("nested worker spawning is not supported")
+    _SPAWN_GUARD_STATE.active = True
     try:
-        os.environ.clear()
-        os.environ.update(environ)
-        os.chdir(cwd)
-        proc.start()
-    finally:
+        saved_env = dict(os.environ)
+        saved_cwd = os.getcwd()
+        ctx = multiprocessing.get_context("spawn")
+        proc = ctx.Process(target=target, args=args, daemon=True)
         try:
-            os.chdir(saved_cwd)
-        finally:
             os.environ.clear()
-            os.environ.update(saved_env)
-    try:
-        yield proc
+            os.environ.update(environ)
+            os.chdir(cwd)
+            proc.start()
+        finally:
+            try:
+                os.chdir(saved_cwd)
+            finally:
+                os.environ.clear()
+                os.environ.update(saved_env)
+        try:
+            yield proc
+        finally:
+            if proc.is_alive():
+                proc.kill()
+                proc.join(TERMINATE_GRACE_SECONDS)
     finally:
-        if proc.is_alive():
-            proc.kill()
-            proc.join(TERMINATE_GRACE_SECONDS)
-
-
-def terminate_worker(proc: SpawnProcess) -> None:
-    """Terminate a stuck worker, escalating to kill (both bounded)."""
-    if not proc.is_alive():
-        proc.join(TERMINATE_GRACE_SECONDS)
-        return
-    proc.terminate()
-    proc.join(TERMINATE_GRACE_SECONDS)
-    if proc.is_alive():
-        proc.kill()
-        proc.join(TERMINATE_GRACE_SECONDS)
+        _SPAWN_GUARD_STATE.active = False
 
 
 def capture_tail(path: Path) -> str:
@@ -180,8 +181,8 @@ def capture_tail(path: Path) -> str:
 
     Only regular files are read (lstat, never following symlinks), so a
     worker-left FIFO, socket, device, or directory cannot block or crash
-    the parent. A path swapped after this check needs a post-exit writer,
-    which S1 process supervision does not provide — see security-model.md.
+    the parent. A path swapped after this check needs a post-exit writer
+    outside the supervised tree — see security-model.md.
     """
     try:
         lstat = os.lstat(path)
@@ -192,9 +193,14 @@ def capture_tail(path: Path) -> str:
     size = lstat.st_size
     if size <= 0:
         return ""
-    with open(path, "rb") as handle:
-        handle.seek(max(0, size - MAX_CAPTURE_BYTES))
-        decoded = handle.read(MAX_CAPTURE_BYTES + 1).decode("utf-8", errors="replace")
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(max(0, size - MAX_CAPTURE_BYTES))
+            decoded = handle.read(MAX_CAPTURE_BYTES + 1).decode("utf-8", errors="replace")
+    except OSError:
+        # A concurrently removed or replaced capture file degrades to empty
+        # diagnostics (verified-empty tree postmortem); never crash the parent.
+        return ""
     if size > MAX_CAPTURE_BYTES or len(decoded) > CAPTURE_TAIL_CHARS:
         return "[output truncated]\n" + decoded[-CAPTURE_TAIL_CHARS:]
     return decoded

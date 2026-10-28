@@ -43,9 +43,9 @@
   a missing or stale approval refuses verification instead of verdicting.
 - No OS-enforced sandbox isolation exists yet; untrusted execution stays
   disabled. Checks run in worker subprocesses via a FastAPI test client
-  under the S1 exposure-reduction policy (minimal env, controlled cwd,
-  JSON results), and only verifier-owned check code runs — model-provided
-  code is never executed.
+  under the S1+S2 worker policy (minimal env, controlled cwd, JSON
+  results, supervised process group), and only verifier-owned check code
+  runs — model-provided code is never executed.
 
 ## Revision integrity (MVP policy)
 
@@ -249,9 +249,12 @@ Keep these four distinctions separate when reading any verdict:
 ## Bounded execution
 
 - Each attempt runs in a spawned subprocess with a wall-clock deadline
-  (`--timeout`, default 60s). Expiry terminates the worker (SIGTERM, then
-  SIGKILL); an expired, crashed, or erroring worker yields an
-  infrastructure outcome, so timeouts and crashes give INCONCLUSIVE and can
+  (`--timeout`, default 60s). Expiry supervises the whole process tree:
+  SIGTERM to the verified process group plus the direct child, a bounded
+  grace wait, then SIGKILL escalation, reaping, and a verified-empty-tree
+  confirmation before any result is accepted. An expired, crashed,
+  erroring, or un-cleanable worker yields an infrastructure outcome, so
+  timeouts, crashes, and cleanup failures give INCONCLUSIVE and can
   never alone establish FAILED.
 - Limits: workers run with the operator's privileges and share the
   filesystem; this bounds stuck execution but is not a sandbox against
@@ -259,10 +262,11 @@ Keep these four distinctions separate when reading any verdict:
   A bare `run_verification` library call remains in-process and unbounded;
   only the CLI path applies deadlines.
 
-## Worker sandbox (S1 exposure reduction)
+## Worker sandbox (S1 exposure reduction, S2 supervision)
 
-S1 hardens the worker boundary; it does not provide operating-system
-enforced isolation. Hostile target code remains out of scope.
+S1 hardens the worker boundary and S2 supervises the worker process
+tree; neither provides operating-system enforced isolation. Hostile
+target code remains out of scope.
 
 - Explicit worker environment: each worker starts with an allowlist of
   `PYTHONPYCACHEPREFIX` only (plus `SYSTEMROOT`/`TEMP`/`TMP` on Windows).
@@ -300,16 +304,40 @@ enforced isolation. Hostile target code remains out of scope.
 - Result and capture readers accept only regular files (never
   following symlinks) and bound every read, so worker-left FIFOs,
   sockets, devices, or directories fail closed without blocking.
-  A path swapped after the check needs a post-exit writer, which S1
-  supervision cannot produce or observe — content that arrives this
+  A path swapped after the check needs a post-exit writer outside
+  the verified-empty supervised tree — content that arrives this
   way is still size-bounded and schema-validated, so at worst it is
   rejected as malformed.
+- S2 process-group supervision (Unix): each worker establishes its
+  own process group as its first action and records the group id in
+  a handshake file. The parent signals only a verified group — the
+  handshake must name exactly the child's own pid, and never pid 1,
+  the parent's pid, or the parent's group — so handshake tampering
+  cannot redirect signals to an arbitrary group and the parent never
+  targets its own group. Verification does not eliminate numeric-ID
+  reuse: after the direct worker is reaped, the OS may reuse the old
+  numeric PGID for an unrelated same-UID group, and a post-reap sweep
+  signaling that number could reach those processes. That residual is
+  a potential availability failure; supervision still fails closed
+  (a reused group keeps the tree non-empty, yielding a cleanup-failure
+  infrastructure outcome, never PASSED). Timeout or cancellation
+  sends SIGTERM to the group plus the direct child, waits a bounded
+  grace, escalates to SIGKILL, reaps the child, and requires a
+  verified-empty tree (Linux `/proc` scan, zombies excluded, with a
+  precautionary final sweep) before accepting any result. A worker
+  that exits while descendants are still running is a cleanup
+  failure even after the sweep terminates them.
+- S2 platform limits: where process groups are unavailable
+  (Windows), only the direct child is supervised — descendants are
+  not tracked and no equivalent protection is claimed. A process
+  group is ordinary supervision, not containment: a hostile
+  descendant that detaches into another session escapes the
+  supervised tree by design.
 - Residuals: no CPU/memory limits, no network or filesystem
-  restrictions, no privilege separation, no process-tree supervision
-  beyond the direct child. Unbounded worker *writes* can fill disk
-  before failing closed. A worker whose validated report lies is
-  still trusted — sandboxing the channel cannot authenticate its
-  content.
+  restrictions, no privilege separation. Unbounded worker *writes*
+  can fill disk before failing closed. A worker whose validated
+  report lies is still trusted — sandboxing the channel cannot
+  authenticate its content.
 
 ## Endpoint inventory mechanism
 

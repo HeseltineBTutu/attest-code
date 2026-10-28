@@ -25,10 +25,18 @@
   validation (a pre-spawn preflight plus an already-imported tripwire), plus
   deterministic runtime settings (interpreter, `PYTHONPATH`, installed
   versions, manifest hashes) bound into the configuration digest.
-- `attest_core.sandbox` (implemented S1): worker exposure reduction —
+- `attest_core.sandbox` (implemented S1+S2): worker exposure reduction —
   minimal worker environment, controlled working directory, per-attempt
-  bytecode caches, and bounded diagnostic capture. Not OS-enforced
-  isolation (see security-model.md).
+  bytecode caches, bounded diagnostic capture, and guarded spawning.
+  Not OS-enforced isolation (see security-model.md).
+- `attest_core.supervision` (implemented S2): supervision
+  orchestration — lifecycle, TERM→grace→KILL escalation, reaping, and
+  verified-empty-tree confirmation before a clean result. Supervision
+  of ordinary descendants; not unbreakable containment.
+- `attest_core.process_group` (implemented S2): Unix process-group
+  establishment, handshake verification, and signalling.
+- `attest_core.tree_inspection` (implemented S2): supervised-tree
+  membership observation (`/proc` scan with a conservative fallback).
 - `attest_core.envelope` (implemented S1): versioned JSON worker-result
   protocol with strict schema validation, replacing pickle IPC.
 - `apps.cli` (implemented): argparse entry point mapping outcomes to exit
@@ -70,7 +78,8 @@ in main dependencies as a provisional hackathon simplification.
    run 401/403/200 probes per endpoint over a fresh test client, each
    attempt in a sandboxed worker subprocess (minimal env, controlled cwd,
    per-attempt bytecode cache, bounded JSON result file, wall-clock
-   deadline).
+   deadline, supervised process group with TERM→KILL escalation and
+   verified-empty-tree cleanup).
 7. The orchestrator genuinely re-executes the checks three times under one
    recorded revision and configuration digest, emitting per-check and
    per-attempt evidence records.

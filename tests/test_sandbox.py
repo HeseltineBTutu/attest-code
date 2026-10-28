@@ -404,3 +404,25 @@ def test_guarded_spawn_rejects_background_threads(tmp_path: Path) -> None:
     worker.join(30.0)
     assert not worker.is_alive()
     assert len(errors) == 1
+
+
+def test_guarded_spawn_rejects_nested_use(tmp_path: Path) -> None:
+    with (
+        guarded_spawn(_passing_probe, (), environ={}, cwd=tmp_path),
+        pytest.raises(SandboxError, match="nested"),
+        guarded_spawn(_passing_probe, (), environ={}, cwd=tmp_path),
+    ):
+        pass
+    # Outer guard completed; the gate is released for subsequent spawns.
+    report = run_bounded(_passing_probe, 30.0)
+    assert report.outcome == AttemptOutcome.PASS
+
+
+def test_guarded_spawn_gate_released_after_failed_start(tmp_path: Path) -> None:
+    with (
+        pytest.raises(OSError, match="missing"),
+        guarded_spawn(_passing_probe, (), environ={}, cwd=tmp_path / "missing"),
+    ):
+        pass
+    report = run_bounded(_passing_probe, 30.0)
+    assert report.outcome == AttemptOutcome.PASS

@@ -31,7 +31,9 @@ from attest_core.envelope import (
     write_result_file,
 )
 from attest_core.git import RELEVANT_PATHS, GitError, repo_root
+from attest_core.process_group import establish_worker_group
 from attest_core.sandbox import (
+    TERMINATE_GRACE_SECONDS,
     SandboxWorkdir,
     build_worker_environ,
     cleanup_workdir,
@@ -39,8 +41,8 @@ from attest_core.sandbox import (
     guarded_spawn,
     prepare_workdir,
     register_cleanup,
-    terminate_worker,
 )
+from attest_core.supervision import WorkerPhase, supervise_worker
 
 EXPECTED_PACKAGES = ("attest_spec", "attest_core", "apps", "examples", "integrations")
 """First-party packages whose origin must be inside the attested tree."""
@@ -135,6 +137,7 @@ def report_worker_origins() -> dict[str, str | None]:
 
 
 def _probe_main(paths: SandboxWorkdir) -> None:
+    establish_worker_group(paths)
     enter_worker_context(paths)
     try:
         write_result_file(paths.result, encode_origins(report_worker_origins()))
@@ -162,12 +165,15 @@ def probe_worker_origins(timeout_seconds: float) -> dict[str, str | None]:
     try:
         env = build_worker_environ()
         with guarded_spawn(_probe_main, (paths,), environ=env, cwd=paths.root) as proc:
-            proc.join(timeout_seconds)
-            if proc.is_alive():
-                terminate_worker(proc)
+            supervised = supervise_worker(
+                proc, paths, timeout_seconds=timeout_seconds, grace_seconds=TERMINATE_GRACE_SECONDS
+            )
+            if supervised.phase is WorkerPhase.CLEANUP_FAILED:
+                raise OriginError(f"worker origin probe cleanup failed: {supervised.detail}")
+            if supervised.timed_out:
                 raise OriginError("worker origin probe timed out")
-            if proc.exitcode != 0:
-                raise OriginError(f"worker origin probe crashed (exit code {proc.exitcode})")
+            if supervised.exitcode != 0:
+                raise OriginError(f"worker origin probe crashed (exit code {supervised.exitcode})")
             try:
                 return _validate_probe_payload(
                     decode_origins_envelope(read_result_file(paths.result))

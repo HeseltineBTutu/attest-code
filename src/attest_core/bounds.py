@@ -32,7 +32,9 @@ from attest_core.envelope import (
     write_result_file,
 )
 from attest_core.origin import OriginError, check_origins, report_worker_origins
+from attest_core.process_group import establish_worker_group
 from attest_core.sandbox import (
+    TERMINATE_GRACE_SECONDS,
     SandboxWorkdir,
     build_worker_environ,
     cleanup_workdir,
@@ -41,8 +43,8 @@ from attest_core.sandbox import (
     guarded_spawn,
     prepare_workdir,
     register_cleanup,
-    terminate_worker,
 )
+from attest_core.supervision import WorkerPhase, supervise_worker
 from attest_core.verification import AttemptReport
 from attest_spec import AttemptOutcome
 
@@ -63,6 +65,7 @@ def _finish(paths: SandboxWorkdir, payload: str) -> None:
 def _worker_main(
     func: Callable[[], AttemptReport], paths: SandboxWorkdir, snapshot_root: Path | None
 ) -> None:
+    establish_worker_group(paths)
     enter_worker_context(paths)
     try:
         if snapshot_root is not None:
@@ -93,17 +96,21 @@ def run_bounded(
     timeout_seconds: float,
     *,
     snapshot_root: Path | None = None,
+    grace_seconds: float = TERMINATE_GRACE_SECONDS,
 ) -> AttemptReport:
     """Run one attempt with a wall-clock deadline, terminating on expiry.
 
     The worker starts with a minimal environment and controlled working
     directory, writes a bounded JSON result file, and is supervised to
-    completion. When a snapshot root is given, the worker verifies its
-    own first-party origins resolve beneath it before running checks;
-    anything else fails the attempt as an infrastructure failure.
+    completion: on timeout the supervised tree is terminated (escalating
+    to kill), and a result is only accepted from a reaped worker whose
+    tree is verified gone. When a snapshot root is given, the worker
+    verifies its own first-party origins resolve beneath it before
+    running checks; anything else fails the attempt as an infrastructure
+    failure.
     """
-    if timeout_seconds <= 0:
-        raise ValueError("timeout_seconds must be positive")
+    if timeout_seconds <= 0 or grace_seconds <= 0:
+        raise ValueError("timeout_seconds and grace_seconds must be positive")
     paths = prepare_workdir()
     register_cleanup(paths.root)
     try:
@@ -111,17 +118,24 @@ def run_bounded(
         with guarded_spawn(
             _worker_main, (func, paths, snapshot_root), environ=env, cwd=paths.root
         ) as proc:
-            proc.join(timeout_seconds)
-            if proc.is_alive():
-                terminate_worker(proc)
+            supervised = supervise_worker(
+                proc, paths, timeout_seconds=timeout_seconds, grace_seconds=grace_seconds
+            )
+            if supervised.phase is WorkerPhase.CLEANUP_FAILED:
+                return AttemptReport(
+                    AttemptOutcome.INFRA_FAILURE,
+                    (),
+                    f"worker cleanup failed: {supervised.detail}" + failure_suffix(paths),
+                )
+            if supervised.timed_out:
                 return AttemptReport(
                     AttemptOutcome.INFRA_FAILURE,
                     (),
                     f"worker exceeded {timeout_seconds:g}s deadline and was terminated"
                     + failure_suffix(paths),
                 )
-            if proc.exitcode != 0:
-                return _crashed(proc.exitcode, failure_suffix(paths))
+            if supervised.exitcode != 0:
+                return _crashed(supervised.exitcode, failure_suffix(paths))
             try:
                 return decode_attempt_report(read_result_file(paths.result))
             except SandboxEnvelopeError as exc:
