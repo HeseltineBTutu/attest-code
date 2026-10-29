@@ -333,6 +333,65 @@ target code remains out of scope.
   group is ordinary supervision, not containment: a hostile
   descendant that detaches into another session escapes the
   supervised tree by design.
+- M1 filesystem isolation (Linux, explicit opt-in via
+  `run_bounded(..., contained=True)`; default path unchanged): the
+  outer worker keeps its S1/S2 identity (group leader, timeout
+  target) and spawns a runner that enters user+mount namespaces
+  (parent-written single UID/GID map — self-mapping is rejected on
+  hardened kernels), then pivot-roots into read-only binds of
+  `/usr`, `/usr/local`, the venv, and the approved snapshot, plus
+  a 64 MiB noexec tmpfs scratch, minimal `/etc`, and selected
+  `/dev` nodes. No `/proc` is mounted; the environment is scrubbed
+  to six variables; per-process rlimits cap address space (1 GiB),
+  file size (64 MiB), and fd count (256). Imports are surgically
+  repointed at `/snapshot` with bootstrap eviction plus the
+  standard origin self-check; results return over a dedicated pipe
+  fd through the unchanged bounded JSON protocol after the normal
+  S2 reap-and-verify. Proven by the adversarial battery in
+  `tests/test_src/test_attest_core/test_contain.py` (denied
+  snapshot/escape/secret writes and reads, scratch overflow,
+  noexec, env allowlist, clipped relay, real checks contained).
+- M2 PID-namespace lifecycle (Linux, same opt-in): the runner's
+  child unshares user+mount+PID together (the kernel rejects lone
+  PID unsharing unprivileged), then forks again so checks run as
+  namespace init (PID 1, verified). When init exits — normally, by
+  crash, or on timeout — the kernel SIGKILLs every remaining
+  namespace member, including setsid-detached descendants; init
+  installs a SIGTERM handler because PID 1 ignores SIGTERM by
+  default. Exit statuses relay unchanged to the parent, which maps
+  any abnormal exit to infrastructure failure, never a verdict.
+  Proven by `tests/test_src/test_attest_core/test_pidns.py` (init
+  identity, descendant teardown on completion and on crash, prompt
+  timeout, crash/setup-failure mapping, interruption cleanup). S2
+  group supervision of the outer worker is unchanged (defense in
+  depth).
+- Bootstrap/import boundary (Linux contained path): the runner is
+  a fresh interpreter, so fork-inherited path hygiene does not
+  apply — and ``site`` still processes venv ``.pth`` files under
+  ``-I``, so an editable install's live ``src`` was importable as
+  a fallback. The launcher now passes ``-S`` (no site init, hence
+  no ``.pth``/``sitecustomize`` execution); the bootstrap then
+  evicts preloaded ``attest_*`` modules, pins ``sys.path`` to the
+  snapshot plus the stdlib, refuses an incomplete snapshot before
+  importing anything, and only then imports the runner. The
+  parent refuses to spawn on an incomplete snapshot, and the
+  contained init evicts first-party modules prefix-wide before
+  re-importing from ``/snapshot`` (origin self-check unchanged).
+  Proven by ``tests/test_src/test_attest_core/test_bootstrap.py`` and
+  ``test_launcher.py`` (spawn descriptor lifecycle, venv-fallback
+  rejection without check execution).
+  Residual: the interpreter binary, base stdlib, venv
+  third-party packages, and snapshot provenance (trusted parent)
+  remain trusted inputs.
+- M1/M2 explicit non-claims: the host UID is unchanged (uid 1000
+  on both sides; the mount boundary, not identity, carries
+  filesystem safety). No network isolation, no cgroup quotas or
+  lifecycle (delegation unverified — rlimits and tmpfs caps are the
+  only resource bounds; namespace teardown, not cgroup emptiness,
+  is the Linux lifecycle signal), no seccomp, and no CPU/NPROC
+  rlimits (documented hazards). Hosts without user namespaces and
+  Windows stay on the existing degraded path; nothing silently
+  falls back.
 - Residuals: no CPU/memory limits, no network or filesystem
   restrictions, no privilege separation. Unbounded worker *writes*
   can fill disk before failing closed. A worker whose validated

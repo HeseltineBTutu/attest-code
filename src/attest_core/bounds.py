@@ -18,9 +18,11 @@ pickling remains, which is trusted-direction data.
 from __future__ import annotations
 
 import contextlib
+import pickle
 from collections.abc import Callable
 from pathlib import Path
 
+from attest_core.contain import ContainedError, run_contained
 from attest_core.envelope import (
     MAX_DETAIL_CHARS,
     MAX_RESULT_BYTES,
@@ -63,9 +65,18 @@ def _finish(paths: SandboxWorkdir, payload: str) -> None:
 
 
 def _worker_main(
-    func: Callable[[], AttemptReport], paths: SandboxWorkdir, snapshot_root: Path | None
+    func: Callable[[], AttemptReport],
+    paths: SandboxWorkdir,
+    snapshot_root: Path | None,
+    contained: bool = False,
 ) -> None:
     establish_worker_group(paths)
+    if contained:
+        try:
+            run_contained(payload=pickle.dumps(func), snapshot_root=snapshot_root, paths=paths)
+        except ContainedError as exc:
+            _finish(paths, encode_error(_clip(f"contained execution failed: {exc}")))
+        return
     enter_worker_context(paths)
     try:
         if snapshot_root is not None:
@@ -97,6 +108,7 @@ def run_bounded(
     *,
     snapshot_root: Path | None = None,
     grace_seconds: float = TERMINATE_GRACE_SECONDS,
+    contained: bool = False,
 ) -> AttemptReport:
     """Run one attempt with a wall-clock deadline, terminating on expiry.
 
@@ -107,7 +119,8 @@ def run_bounded(
     tree is verified gone. When a snapshot root is given, the worker
     verifies its own first-party origins resolve beneath it before
     running checks; anything else fails the attempt as an infrastructure
-    failure.
+    failure. With contained=True (Linux only, explicit opt-in), checks
+    run inside user+mount+PID namespaces via the contained runner.
     """
     if timeout_seconds <= 0 or grace_seconds <= 0:
         raise ValueError("timeout_seconds and grace_seconds must be positive")
@@ -116,7 +129,7 @@ def run_bounded(
     try:
         env = build_worker_environ({"PYTHONPYCACHEPREFIX": str(paths.pycache)})
         with guarded_spawn(
-            _worker_main, (func, paths, snapshot_root), environ=env, cwd=paths.root
+            _worker_main, (func, paths, snapshot_root, contained), environ=env, cwd=paths.root
         ) as proc:
             supervised = supervise_worker(
                 proc, paths, timeout_seconds=timeout_seconds, grace_seconds=grace_seconds

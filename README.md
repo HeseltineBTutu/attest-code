@@ -89,6 +89,7 @@ Prerequisites: Python >= 3.11 and `uv`.
 ```sh
 export UV_CACHE_DIR=/tmp/uv-cache  # only if the default uv cache is read-only
 uv sync --group dev
+./scripts/quality-gate.sh  # all gates, fail-fast (see docs/testing.md)
 uv run pytest
 uv run pytest tests/test_line_limit.py -q  # 200-line limit gate (also enforced in full suite)
 uv run ruff check src tests

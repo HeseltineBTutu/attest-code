@@ -21,7 +21,13 @@ into a single module mirror:
 No `__init__.py` under `tests/` (rootdir import mode; keep basenames
 unique). No directories for packages without tests (`attest_spec`,
 `examples`). New unit tests go to the mirror; new cross-package
-tests go to `test_cli/` or `test_integration/`.
+tests go to `test_cli/` or `test_integration/`. The M1 containment
+battery lives in `tests/test_src/test_attest_core/test_contain.py`,
+the M2 lifecycle battery in `test_pidns.py`, and the
+bootstrap/import-boundary battery in `test_bootstrap.py`; all run
+checks via `run_bounded(..., contained=True)` (or invoke the real
+launcher bootstrap directly), and tests needing namespaces skip
+explicitly where `supports_containment()` is false.
 
 ## Executable documentation
 
@@ -39,6 +45,35 @@ Enforced by `tests/test_docs.py` on every suite run (stdlib
   README shell blocks mutate the operator environment). YAML
   validity rides the suite (conftest loads the real invariant
   files through `load_definitions`); no JSON snippets exist today.
+
+## Consolidated gate
+
+One command runs every required check, cheapest first so trivial
+breaks fail before the minutes-long suite:
+
+```sh
+./scripts/quality-gate.sh
+```
+
+Gates, in execution order (stops at the first failure, exits with
+that gate's status, names the failed gate on stderr):
+
+1. `line-limit` — `python tests/line_limit.py`: the 200-line rule
+   with its shrink-only baseline (also self-enforced in-suite).
+2. `ruff-check` — `ruff check src tests` (project configuration).
+3. `ruff-format` — `ruff format --check src tests`; verifies only,
+   never rewrites.
+4. `mypy` — `mypy src tests` (project strict configuration).
+5. `pytest` — the full suite: source-module, CLI, integration,
+   security, and documentation tests. One skip is expected (the
+   usercustomize-interpreter test, inactive on some interpreters).
+
+Prerequisite: the project venv (README: `uv sync --group dev`); a
+missing interpreter fails the run with exit 2 before any gate.
+`QUALITY_GATE_PYTHON` overrides the interpreter. The script resolves
+the repository root from its own location, so it runs from any
+working directory. When debugging a failure, re-run the gate's own
+command above directly.
 
 ## Commands
 
