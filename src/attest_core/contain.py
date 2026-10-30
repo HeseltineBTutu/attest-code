@@ -3,7 +3,7 @@
 The outer worker (existing S1/S2 identity: process-group leader, timeout
 target) launches a contained runner over pipes and relays its result
 into the existing file protocol. The runner executes checks inside
-user, mount, and PID namespaces; this module never enters a namespace
+user, mount, PID, and network namespaces; this module never enters a namespace
 and never runs check code. Parent-side supervision, capture bounds,
 and result validation are unchanged.
 

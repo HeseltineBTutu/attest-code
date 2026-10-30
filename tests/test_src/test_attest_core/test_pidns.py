@@ -32,7 +32,7 @@ from attest_core.pidns_probes import (
 from attest_spec import AttemptOutcome
 
 NEEDS_CONTAINMENT = pytest.mark.skipif(
-    not supports_containment(), reason="M2 user+mount+PID namespaces unavailable"
+    not supports_containment(), reason="M2 user+mount+PID+network namespaces unavailable"
 )
 
 

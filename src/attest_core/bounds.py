@@ -136,7 +136,7 @@ def run_bounded(
     verifies its own first-party origins resolve beneath it before
     running checks; anything else fails the attempt as an infrastructure
     failure. With contained=True (Linux only, explicit opt-in), checks
-    run inside user+mount+PID namespaces via the contained runner.
+    run inside user+mount+PID+network namespaces via the contained runner.
     With quotas=True (requires contained=True), the runner is confined
     to a per-attempt systemd scope; unsupported hosts fail closed.
     """

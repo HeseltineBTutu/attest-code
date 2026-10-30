@@ -35,7 +35,11 @@ lifecycle), and `test_quota_live.py` (end-to-end enforcement via
 scopes skip explicitly where `supports_quotas()` is false, and
 `scope_helpers.py` holds the shared skip marker plus the
 scope-ready poll (a scope is not queryable the instant `Popen`
-returns).
+returns). The M3-B network battery lives in `test_netns.py`
+(route/DNS/metadata/loopback/abstract/fd-audit probes, all via
+`run_bounded(..., contained=True)`); the abstract-socket test
+skips where that fixture is unavailable, and the
+quotas-composition test skips with the quota marker.
 
 ## Executable documentation
 

@@ -24,7 +24,7 @@ from attest_core.pidns_probes import probe_module_origins
 from attest_core.sandbox import SandboxWorkdir
 
 NEEDS_CONTAINMENT = pytest.mark.skipif(
-    not supports_containment(), reason="user+mount+PID namespaces unavailable"
+    not supports_containment(), reason="user+mount+PID+network namespaces unavailable"
 )
 
 

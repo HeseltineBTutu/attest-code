@@ -24,7 +24,7 @@ from attest_core.sandbox import SandboxWorkdir
 from attest_spec import AttemptOutcome
 
 NEEDS_CONTAINMENT = pytest.mark.skipif(
-    not supports_containment(), reason="user+mount+PID namespaces unavailable"
+    not supports_containment(), reason="user+mount+PID+network namespaces unavailable"
 )
 
 

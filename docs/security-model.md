@@ -412,10 +412,33 @@ target code remains out of scope.
   Residual: an outer worker SIGKILL orphans at most the 300 s
   holder before scope auto-GC; the S2 SIGTERM path stops the
   scope explicitly.
-- M1/M2/M3-A explicit non-claims: the host UID is unchanged (uid
-  1000 on both sides; the mount boundary, not identity, carries
-  filesystem safety). No network isolation, no seccomp, and no
-  CPU/NPROC rlimits (documented hazards). cgroup quotas apply
+- M3-B network isolation (Linux, same contained opt-in, no
+  separate flag): the namespace dance unshares a network
+  namespace together with user+mount+PID, so every contained
+  attempt starts with no interfaces up, no addresses, and no
+  routes; hosts where the combined unshare fails refuse
+  contained execution instead of running partially isolated.
+  All external IPv4/IPv6, private-range, link-local/metadata,
+  DNS, host-loopback, and abstract-Unix-socket destinations are
+  unreachable in-kernel; filesystem Unix sockets stay cut off by
+  the M1 mounts (no `/run`), and netns escape via `setns`
+  requires init-userns privileges the workload lacks. The
+  workload may raise its own private loopback (unstoppable,
+  harmless — host loopback is a different interface, proven by
+  binding the same address+port twice). No traffic allowlist
+  exists: verification workloads are offline by design, and an
+  allowlist would need privileged provisioning. Exercised by
+  `test_netns.py` (route/DNS/metadata/loopback/abstract/fd-audit
+  probes plus one M3-A composition attempt); the abstract-socket
+  test skips where the host cannot build that fixture, and the
+  composition test skips without quotas.
+  Residual: same-UID identity, vsock on older kernels, workload
+  control of its own netns interior (confined), kernel/netstack
+  escape out of scope as before.
+- M1/M2/M3-A/M3-B explicit non-claims: the host UID is unchanged
+  (uid 1000 on both sides; the mount boundary, not identity,
+  carries filesystem safety). No seccomp, no traffic allowlist,
+  and no CPU/NPROC rlimits (documented hazards). cgroup quotas apply
   only with quotas=True on hosts where launch-into-scope verifies
   end to end (bare-metal systemd sessions; GitHub CI unverified);
   the default path still relies on rlimits and tmpfs caps, and

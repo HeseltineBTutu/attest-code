@@ -1,8 +1,9 @@
 """Unprivileged namespace entry and mapped-fork lifecycle (Linux only).
 
 Namespaces are entered through one fork dance: the child unshares
-user+mount+PID together (the kernel rejects lone PID unsharing for
-unprivileged callers), the PARENT writes the single UID/GID map
+user+mount+PID+network together (the kernel rejects lone PID
+unsharing for unprivileged callers), the PARENT writes the single
+UID/GID map
 (self-mapping is rejected with EPERM on hardened kernels), then the
 child forks again so the work runs as PID-namespace init, whose exit
 reliably kills every descendant. Mount layout lives in ``nsmounts``.
@@ -23,6 +24,7 @@ PR_SET_PDEATHSIG = 1
 _CLONE_NEWUSER = 0x10000000
 _CLONE_NEWNS = 0x00020000
 _CLONE_NEWPID = 0x20000000
+_CLONE_NEWNET = 0x40000000
 _SIGKILL = 9
 
 _LIBC = ctypes.CDLL("libc.so.6", use_errno=True)
@@ -57,14 +59,17 @@ def run_mapped_child(child_main: Callable[[], int], parent_close: tuple[int, ...
     """Fork; child unshares, parent maps it, init runs main to _exit.
 
     Returns the init exit code. The child unshares user+mount+PID
-    namespaces together (the kernel rejects lone PID unsharing for
-    unprivileged callers), synchronizes over pipes for parent-side
-    mapping, then forks again: that grandchild is PID-namespace init
-    and runs ``child_main``. When init exits, the kernel SIGKILLs
-    every remaining namespace member, so no descendant can outlive
-    the call. Fds in ``parent_close`` are closed in the parent only.
-    Init ignores SIGTERM by default, so ``child_main`` must handle
-    it explicitly to preserve prompt timeout behavior.
+    +network namespaces together (the kernel rejects lone PID
+    unsharing for unprivileged callers), synchronizes over pipes
+    for parent-side mapping, then forks again: that grandchild is
+    PID-namespace init and runs ``child_main``. When init exits,
+    the kernel SIGKILLs every remaining namespace member, so no
+    descendant can outlive the call. The network namespace starts
+    with no interfaces up, no addresses, and no routes, so no
+    traffic can leave it. Fds in ``parent_close`` are closed in
+    the parent only. Init ignores SIGTERM by default, so
+    ``child_main`` must handle it explicitly to preserve prompt
+    timeout behavior.
     """
     ready_r, ready_w = os.pipe()
     go_r, go_w = os.pipe()
@@ -88,7 +93,7 @@ def run_mapped_child(child_main: Callable[[], int], parent_close: tuple[int, ...
     os.close(ready_r)
     os.close(go_w)
     try:
-        flags = _CLONE_NEWUSER | _CLONE_NEWNS | _CLONE_NEWPID
+        flags = _CLONE_NEWUSER | _CLONE_NEWNS | _CLONE_NEWPID | _CLONE_NEWNET
         if _LIBC.unshare(flags) != 0:
             raise RunnerError(f"unshare failed: errno {ctypes.get_errno()}")
         os.write(ready_w, b"1")
@@ -122,7 +127,7 @@ def _probe_namespaces() -> int:
 
 
 def supports_containment() -> bool:
-    """Whether unprivileged user+mount+PID namespaces work (cached probe).
+    """Whether unprivileged user+mount+PID+network namespaces work (cached probe).
 
     Runs a child through the same mapped-fork dance the runner uses,
     then verifies a nested PID namespace actually isolates (first

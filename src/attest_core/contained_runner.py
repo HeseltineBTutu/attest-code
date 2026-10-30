@@ -3,7 +3,7 @@
 Executed fresh via ``python -I -c`` with argv ``[snapshot_src, result_fd,
 stage_dir, scope_unit?]`` and the pickled check callable on stdin. Top-level imports
 are stdlib plus the side-effect-free namespace bindings. The runner
-forks a grandchild that unshares user+mount+PID namespaces together
+forks a grandchild that unshares user+mount+PID+network namespaces together
 (maps are written parent-side: self-mapping is rejected on hardened
 kernels, as is lone PID unsharing), then forks again: that init
 builds the private root, scrubs the environment, applies rlimits,
