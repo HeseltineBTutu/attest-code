@@ -27,7 +27,15 @@ the M2 lifecycle battery in `test_pidns.py`, and the
 bootstrap/import-boundary battery in `test_bootstrap.py`; all run
 checks via `run_bounded(..., contained=True)` (or invoke the real
 launcher bootstrap directly), and tests needing namespaces skip
-explicitly where `supports_containment()` is false.
+explicitly where `supports_containment()` is false. The M3-A quota
+batteries live in `test_scopes.py` (scope mechanics plus live
+throttle/OOM/tasks counters), `test_quotas.py` (fail-closed
+lifecycle), and `test_quota_live.py` (end-to-end enforcement via
+`run_bounded(..., contained=True, quotas=True)`); tests needing
+scopes skip explicitly where `supports_quotas()` is false, and
+`scope_helpers.py` holds the shared skip marker plus the
+scope-ready poll (a scope is not queryable the instant `Popen`
+returns).
 
 ## Executable documentation
 

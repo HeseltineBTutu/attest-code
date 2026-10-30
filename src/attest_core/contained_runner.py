@@ -1,7 +1,7 @@
 """Contained runner: namespaces, mounts, then checks (Linux only).
 
 Executed fresh via ``python -I -c`` with argv ``[snapshot_src, result_fd,
-stage_dir]`` and the pickled check callable on stdin. Top-level imports
+stage_dir, scope_unit?]`` and the pickled check callable on stdin. Top-level imports
 are stdlib plus the side-effect-free namespace bindings. The runner
 forks a grandchild that unshares user+mount+PID namespaces together
 (maps are written parent-side: self-mapping is rejected on hardened
@@ -24,10 +24,12 @@ import pickle
 import resource
 import signal
 import sys
+import time
 from pathlib import Path
 
 from attest_core.ns_setup import RunnerError, run_mapped_child
 from attest_core.nsmounts import build_root
+from attest_core.scope_enter import ScopeError, verify_self_in_scope
 
 MAX_PICKLE_BYTES = 1048576
 
@@ -158,10 +160,11 @@ def _contained_main(payload: bytes, snapshot_root: str, result_fd: int, stage: s
 
 def main(argv: list[str]) -> int:
     """Read the payload, run it mapped and contained, relay the status."""
-    if len(argv) != 3:
-        print("usage: contained_runner <snapshot_src> <result_fd> <stage>", file=sys.stderr)
+    if len(argv) not in (3, 4):
+        print("usage: contained_runner <snapshot_src> <result_fd> <stage> [scope]", file=sys.stderr)
         return 2
-    snapshot_src, result_fd_text, stage_dir = argv
+    snapshot_src, result_fd_text, stage_dir = argv[:3]
+    scope_unit = argv[3] if len(argv) == 4 and argv[3] else None
     try:
         result_fd = int(result_fd_text)
     except ValueError:
@@ -170,11 +173,21 @@ def main(argv: list[str]) -> int:
     snapshot_root = os.path.dirname(os.path.abspath(snapshot_src))
     try:
         payload = _read_stdin_bounded()
+        if scope_unit is not None:
+            verify_self_in_scope(scope_unit)
+            first = os.fork()
+            if first == 0:
+                if os.fork() == 0:
+                    os.setsid()
+                    os.closerange(0, 4096)
+                    time.sleep(300)
+                os._exit(0)
+            os.waitpid(first, 0)
         return run_mapped_child(
             lambda: _contained_main(payload, snapshot_root, result_fd, stage_dir),
             parent_close=(result_fd,),
         )
-    except RunnerError as exc:
+    except (RunnerError, ScopeError) as exc:
         print(f"contained setup failed: {exc}", file=sys.stderr)
         return 2
     finally:

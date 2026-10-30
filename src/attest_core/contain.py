@@ -15,15 +15,15 @@ is a later rollout decision requiring CI validation.
 
 from __future__ import annotations
 
-import functools
 import os
 import subprocess
 import sys
 import threading
 from pathlib import Path
 
+from attest_core import scopes
 from attest_core.envelope import MAX_RESULT_BYTES
-from attest_core.ns_setup import die_with_parent, run_mapped_child
+from attest_core.ns_setup import die_with_parent
 from attest_core.sandbox import MAX_CAPTURE_BYTES, SandboxWorkdir
 
 MAX_PICKLE_BYTES = 1048576
@@ -64,30 +64,6 @@ class ContainedError(Exception):
     """Contained execution failed; the caller maps this to INFRA_FAILURE."""
 
 
-@functools.lru_cache(maxsize=1)
-def _probe_namespaces() -> int:
-    """Init body: mapped root identity inside a real PID namespace."""
-    if os.getuid() != 0 or os.getpid() != 1:
-        return 1
-    return 0
-
-
-def supports_containment() -> bool:
-    """Whether unprivileged user+mount+PID namespaces work (cached probe).
-
-    Runs a child through the same mapped-fork dance the runner uses,
-    then verifies a nested PID namespace actually isolates (first
-    child observes PID 1). A threaded caller degrades to a
-    conservative False rather than risking parent state.
-    """
-    if os.name != "posix" or not hasattr(os, "fork"):
-        return False
-    try:
-        return run_mapped_child(_probe_namespaces) == 0
-    except Exception:
-        return False
-
-
 def _drain_bounded(fd: int, limit: int, sink: list[bytes]) -> None:
     """Drain one pipe to EOF, keeping only the first limit+1 bytes.
 
@@ -115,7 +91,14 @@ def _tail(data: bytes, limit: int = 2048) -> str:
     return data[-limit:].decode("utf-8", errors="replace")
 
 
-def run_contained(*, payload: bytes, snapshot_root: Path | None, paths: SandboxWorkdir) -> None:
+def run_contained(
+    *,
+    payload: bytes,
+    snapshot_root: Path | None,
+    paths: SandboxWorkdir,
+    scope_unit: str | None = None,
+    bus_env: dict[str, str] | None = None,
+) -> None:
     """Run checks contained; relay result and captures into the workdir.
 
     Spawns the contained runner with the pickled callable on stdin and
@@ -125,7 +108,10 @@ def run_contained(*, payload: bytes, snapshot_root: Path | None, paths: SandboxW
     relay. Timeout enforcement stays with the parent's S2 supervision;
     this function blocks until the runner exits. Capture files are
     always written (bounded); any failure raises ContainedError for
-    the caller to map to INFRA_FAILURE.
+    the caller to map to INFRA_FAILURE. With scope_unit, systemd
+    launches the runner inside a fresh quota scope (manager-placed
+    at exec: migration across delegation boundaries is denied), and
+    the runner verifies its own placement before forking.
     """
     if snapshot_root is None:
         raise ContainedError("contained execution requires a snapshot")
@@ -133,26 +119,40 @@ def run_contained(*, payload: bytes, snapshot_root: Path | None, paths: SandboxW
         raise ContainedError(f"snapshot incomplete: no attest_core in {snapshot_root / 'src'}")
     if len(payload) > MAX_PICKLE_BYTES:
         raise ContainedError(f"contained payload exceeds {MAX_PICKLE_BYTES} bytes")
+    scope_arg = scope_unit or ""
     result_r, result_w = os.pipe()
+    cmd = [
+        sys.executable,
+        "-I",
+        "-S",
+        "-c",
+        _BOOTSTRAP,
+        str(snapshot_root / "src"),
+        str(result_w),
+        str(paths.root),
+        scope_arg,
+    ]
+    launcher_env = {"LC_ALL": "C.UTF-8"}
+    if scope_unit is not None:
+        try:
+            if not bus_env:
+                raise ContainedError("quota scope requires a user bus address")
+            cmd = scopes.scope_argv(scopes.QuotaLimits(), scope_unit, cmd)
+            launcher_env = bus_env
+        except BaseException:
+            os.close(result_r)
+            os.close(result_w)
+            raise
     try:
         proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-I",
-                "-S",
-                "-c",
-                _BOOTSTRAP,
-                str(snapshot_root / "src"),
-                str(result_w),
-                str(paths.root),
-            ],
+            cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             pass_fds=(result_w,),
             preexec_fn=die_with_parent,
             cwd=paths.root,
-            env={"LC_ALL": "C.UTF-8"},
+            env=launcher_env,
         )
     except BaseException:
         # Spawn failed: no child or reader owns result_r; release it.

@@ -21,7 +21,7 @@ import pytest
 
 import attest_core.supervision as supervision
 from attest_core.bounds import run_bounded
-from attest_core.contain import supports_containment
+from attest_core.ns_setup import supports_containment
 from attest_core.pidns_probes import (
     probe_crash_sleeper,
     probe_detached_sleeper,

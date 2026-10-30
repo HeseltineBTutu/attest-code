@@ -17,7 +17,8 @@ from pathlib import Path
 import pytest
 
 from attest_core.bounds import run_bounded
-from attest_core.contain import _BOOTSTRAP, run_contained, supports_containment
+from attest_core.contain import _BOOTSTRAP, run_contained
+from attest_core.ns_setup import supports_containment
 from attest_core.pidns_probes import probe_module_origins
 from attest_core.sandbox import SandboxWorkdir
 from attest_spec import AttemptOutcome

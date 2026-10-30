@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import contextlib
 import pickle
+import secrets
 from collections.abc import Callable
 from pathlib import Path
 
+from attest_core import scopes
 from attest_core.contain import ContainedError, run_contained
 from attest_core.envelope import (
     MAX_DETAIL_CHARS,
@@ -33,6 +35,7 @@ from attest_core.envelope import (
     read_result_file,
     write_result_file,
 )
+from attest_core.ns_setup import supports_containment
 from attest_core.origin import OriginError, check_origins, report_worker_origins
 from attest_core.process_group import establish_worker_group
 from attest_core.sandbox import (
@@ -69,11 +72,19 @@ def _worker_main(
     paths: SandboxWorkdir,
     snapshot_root: Path | None,
     contained: bool = False,
+    scope_unit: str | None = None,
+    bus_env: dict[str, str] | None = None,
 ) -> None:
     establish_worker_group(paths)
     if contained:
         try:
-            run_contained(payload=pickle.dumps(func), snapshot_root=snapshot_root, paths=paths)
+            run_contained(
+                payload=pickle.dumps(func),
+                snapshot_root=snapshot_root,
+                paths=paths,
+                scope_unit=scope_unit,
+                bus_env=bus_env,
+            )
         except ContainedError as exc:
             _finish(paths, encode_error(_clip(f"contained execution failed: {exc}")))
         return
@@ -102,6 +113,10 @@ def _crashed(exitcode: object, suffix: str) -> AttemptReport:
     )
 
 
+def _infra(detail: str) -> AttemptReport:
+    return AttemptReport(AttemptOutcome.INFRA_FAILURE, (), detail)
+
+
 def run_bounded(
     func: Callable[[], AttemptReport],
     timeout_seconds: float,
@@ -109,6 +124,7 @@ def run_bounded(
     snapshot_root: Path | None = None,
     grace_seconds: float = TERMINATE_GRACE_SECONDS,
     contained: bool = False,
+    quotas: bool = False,
 ) -> AttemptReport:
     """Run one attempt with a wall-clock deadline, terminating on expiry.
 
@@ -121,16 +137,28 @@ def run_bounded(
     running checks; anything else fails the attempt as an infrastructure
     failure. With contained=True (Linux only, explicit opt-in), checks
     run inside user+mount+PID namespaces via the contained runner.
+    With quotas=True (requires contained=True), the runner is confined
+    to a per-attempt systemd scope; unsupported hosts fail closed.
     """
     if timeout_seconds <= 0 or grace_seconds <= 0:
         raise ValueError("timeout_seconds and grace_seconds must be positive")
+    if quotas and not contained:
+        raise ValueError("quotas=True requires contained=True")
     paths = prepare_workdir()
     register_cleanup(paths.root)
+    scope_unit: str | None = None
+    bus_env: dict[str, str] | None = None
     try:
+        if quotas:
+            if not supports_containment() or not scopes.supports_quotas():
+                return _infra("quota execution unsupported on this host")
+            bus_env = scopes.launch_env()
+            if bus_env is None:
+                return _infra("quota execution unsupported on this host: no user bus address")
+            scope_unit = f"attest-scope-{secrets.token_hex(8)}.scope"
+        args = (func, paths, snapshot_root, contained, scope_unit, bus_env)
         env = build_worker_environ({"PYTHONPYCACHEPREFIX": str(paths.pycache)})
-        with guarded_spawn(
-            _worker_main, (func, paths, snapshot_root, contained), environ=env, cwd=paths.root
-        ) as proc:
+        with guarded_spawn(_worker_main, args, environ=env, cwd=paths.root) as proc:
             supervised = supervise_worker(
                 proc, paths, timeout_seconds=timeout_seconds, grace_seconds=grace_seconds
             )
@@ -149,6 +177,12 @@ def run_bounded(
                 )
             if supervised.exitcode != 0:
                 return _crashed(supervised.exitcode, failure_suffix(paths))
+            if scope_unit is not None:
+                scope_error = scopes.terminate_scope_by_unit(scope_unit, scopes.QuotaLimits())
+                scope_unit = None
+                if scope_error is not None:
+                    detail = f"scope teardown failed: {scope_error}" + failure_suffix(paths)
+                    return _infra(detail)
             try:
                 return decode_attempt_report(read_result_file(paths.result))
             except SandboxEnvelopeError as exc:
@@ -158,4 +192,6 @@ def run_bounded(
                     f"worker result invalid: {exc}" + failure_suffix(paths),
                 )
     finally:
+        if scope_unit is not None:
+            scopes.terminate_scope_by_unit(scope_unit, scopes.QuotaLimits())
         cleanup_workdir(paths.root)

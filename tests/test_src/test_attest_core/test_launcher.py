@@ -18,7 +18,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from attest_core.contain import _BOOTSTRAP, ContainedError, run_contained, supports_containment
+from attest_core.contain import _BOOTSTRAP, ContainedError, run_contained
+from attest_core.ns_setup import supports_containment
 from attest_core.pidns_probes import probe_module_origins
 from attest_core.sandbox import SandboxWorkdir
 

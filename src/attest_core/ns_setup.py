@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import functools
 import os
 import sys
 from collections.abc import Callable
@@ -110,3 +111,27 @@ def run_mapped_child(child_main: Callable[[], int], parent_close: tuple[int, ...
             with contextlib.suppress(OSError):
                 os.close(fd)
     os._exit(code if isinstance(code, int) else 3)
+
+
+@functools.lru_cache(maxsize=1)
+def _probe_namespaces() -> int:
+    """Init body: mapped root identity inside a real PID namespace."""
+    if os.getuid() != 0 or os.getpid() != 1:
+        return 1
+    return 0
+
+
+def supports_containment() -> bool:
+    """Whether unprivileged user+mount+PID namespaces work (cached probe).
+
+    Runs a child through the same mapped-fork dance the runner uses,
+    then verifies a nested PID namespace actually isolates (first
+    child observes PID 1). A threaded caller degrades to a
+    conservative False rather than risking parent state.
+    """
+    if os.name != "posix" or not hasattr(os, "fork"):
+        return False
+    try:
+        return run_mapped_child(_probe_namespaces) == 0
+    except Exception:
+        return False

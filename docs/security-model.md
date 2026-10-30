@@ -383,20 +383,50 @@ target code remains out of scope.
   Residual: the interpreter binary, base stdlib, venv
   third-party packages, and snapshot provenance (trusted parent)
   remain trusted inputs.
-- M1/M2 explicit non-claims: the host UID is unchanged (uid 1000
-  on both sides; the mount boundary, not identity, carries
-  filesystem safety). No network isolation, no cgroup quotas or
-  lifecycle (delegation unverified — rlimits and tmpfs caps are the
-  only resource bounds; namespace teardown, not cgroup emptiness,
-  is the Linux lifecycle signal), no seccomp, and no CPU/NPROC
-  rlimits (documented hazards). Hosts without user namespaces and
-  Windows stay on the existing degraded path; nothing silently
-  falls back.
-- Residuals: no CPU/memory limits, no network or filesystem
-  restrictions, no privilege separation. Unbounded worker *writes*
-  can fill disk before failing closed. A worker whose validated
-  report lies is still trusted — sandboxing the channel cannot
-  authenticate its content.
+- M3-A quota scopes (Linux, explicit opt-in via
+  `run_bounded(..., contained=True, quotas=True)`): each attempt
+  runs inside a fresh transient systemd user scope. The runner is
+  launched INTO the scope at exec — unprivileged migration across
+  delegation boundaries is kernel-denied (EACCES), so no migrate
+  path exists. Quotas are MemoryMax 512 MiB, TasksMax 64, CPUQuota
+  200%, plus MemorySwapMax=0 where the host has swap (provisional
+  P0 values; GitHub CI unverified). The systemd-run prefix
+  receives only the user-bus address (captured parent-side,
+  threaded through spawn arguments, never placed in worker
+  environment); the runner keeps its scrubbed environment via an
+  `env -i` wrapper, and checks additionally lack `/run` and
+  `/proc`, so they cannot reach the user bus or any cgroup
+  interface. The runner self-verifies placement, forks a
+  holder decoupled into its own session (reparented, invisible
+  to S2's process-group scan) that keeps the scope queryable
+  past runner exit, and the parent stops the scope, re-verifies
+  limits
+  (tamper evidence), and confirms emptiness before accepting any
+  result; quota, placement, tamper, and teardown failures all map
+  to infrastructure failure, never a verdict. Exercised by
+  `test_scopes.py`, `test_quotas.py`, and `test_quota_live.py`
+  (throttle/OOM/tasks counters, tamper detection, stop-kill,
+  timeout, crash, malformed result, detached reaping); live
+  enforcement acceptance reruns on bare metal after each launcher
+  change.
+  Residual: an outer worker SIGKILL orphans at most the 300 s
+  holder before scope auto-GC; the S2 SIGTERM path stops the
+  scope explicitly.
+- M1/M2/M3-A explicit non-claims: the host UID is unchanged (uid
+  1000 on both sides; the mount boundary, not identity, carries
+  filesystem safety). No network isolation, no seccomp, and no
+  CPU/NPROC rlimits (documented hazards). cgroup quotas apply
+  only with quotas=True on hosts where launch-into-scope verifies
+  end to end (bare-metal systemd sessions; GitHub CI unverified);
+  the default path still relies on rlimits and tmpfs caps, and
+  namespace teardown remains the lifecycle signal there. Hosts
+  without user namespaces and Windows stay on the existing
+  degraded path; nothing silently falls back.
+- Residuals (default uncontained path): no CPU/memory limits, no
+  network or filesystem restrictions, no privilege separation.
+  Unbounded worker *writes* can fill disk before failing closed.
+  A worker whose validated report lies is still trusted —
+  sandboxing the channel cannot authenticate its content.
 
 ## Endpoint inventory mechanism
 

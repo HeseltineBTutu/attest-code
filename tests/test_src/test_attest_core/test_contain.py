@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 
 from attest_core.bounds import run_bounded
-from attest_core.contain import supports_containment
 from attest_core.contain_probes import (
     probe_big_detail,
     probe_environ,
@@ -31,6 +30,7 @@ from attest_core.contain_probes import (
     probe_secret_read,
     probe_snapshot_write,
 )
+from attest_core.ns_setup import supports_containment
 from attest_core.verification import AttemptReport
 from attest_spec import AttemptOutcome
 from examples.admin_authorization import run_target_attempt
