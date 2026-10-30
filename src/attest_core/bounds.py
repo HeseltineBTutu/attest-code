@@ -1,18 +1,13 @@
 """Bounded worker execution: real wall-clock deadlines per attempt.
 
-Each attempt runs in a spawned subprocess under the S1 sandbox policy:
-minimal environment, controlled working directory, per-attempt
-bytecode cache, and a bounded JSON result file instead of pickle IPC. A
-worker that exceeds its deadline is terminated; a worker that dies, or
-whose result is missing or invalid, is reported as crashed or failed.
-All classify as infrastructure failures (INCONCLUSIVE), never as
-violations.
-
-This is execution bounding plus exposure reduction, not a security
-sandbox: the worker runs with the operator's privileges and must only
-execute verifier-owned check code. The worker callable must be
-picklable (a top-level function reference); only parent-to-child
-pickling remains, which is trusted-direction data.
+Each attempt runs in a spawned subprocess under the S1 sandbox policy
+(minimal env, controlled workdir, per-attempt pycache, bounded JSON
+result file). Deadline expiry terminates the tree (escalating to kill);
+dead workers and missing/invalid results report as crashes or failures.
+All classify as infrastructure failures, never violations. The worker
+runs with operator privileges and must only execute verifier-owned
+check code; the callable must be a picklable top-level reference, so
+only parent-to-child pickling remains (trusted direction).
 """
 
 from __future__ import annotations
@@ -38,6 +33,7 @@ from attest_core.envelope import (
 from attest_core.ns_setup import supports_containment
 from attest_core.origin import OriginError, check_origins, report_worker_origins
 from attest_core.process_group import establish_worker_group
+from attest_core.resource_evidence import collect_resources, with_resources
 from attest_core.sandbox import (
     TERMINATE_GRACE_SECONDS,
     SandboxWorkdir,
@@ -74,6 +70,7 @@ def _worker_main(
     contained: bool = False,
     scope_unit: str | None = None,
     bus_env: dict[str, str] | None = None,
+    seccomp: bool = False,
 ) -> None:
     establish_worker_group(paths)
     if contained:
@@ -84,6 +81,7 @@ def _worker_main(
                 paths=paths,
                 scope_unit=scope_unit,
                 bus_env=bus_env,
+                seccomp=seccomp,
             )
         except ContainedError as exc:
             _finish(paths, encode_error(_clip(f"contained execution failed: {exc}")))
@@ -125,25 +123,25 @@ def run_bounded(
     grace_seconds: float = TERMINATE_GRACE_SECONDS,
     contained: bool = False,
     quotas: bool = False,
+    seccomp: bool = False,
 ) -> AttemptReport:
     """Run one attempt with a wall-clock deadline, terminating on expiry.
 
-    The worker starts with a minimal environment and controlled working
-    directory, writes a bounded JSON result file, and is supervised to
-    completion: on timeout the supervised tree is terminated (escalating
-    to kill), and a result is only accepted from a reaped worker whose
-    tree is verified gone. When a snapshot root is given, the worker
-    verifies its own first-party origins resolve beneath it before
-    running checks; anything else fails the attempt as an infrastructure
-    failure. With contained=True (Linux only, explicit opt-in), checks
-    run inside user+mount+PID+network namespaces via the contained runner.
-    With quotas=True (requires contained=True), the runner is confined
-    to a per-attempt systemd scope; unsupported hosts fail closed.
+    The worker starts minimal (environment, workdir, result file) and is
+    supervised to completion; timeouts terminate the tree (escalating to
+    kill), and results are accepted only from a reaped worker whose tree
+    is verified gone. Snapshot roots add origin self-checks; anything
+    else fails as infrastructure failure. contained=True (Linux opt-in)
+    runs checks in user+mount+PID+network namespaces; quotas=True adds
+    a per-attempt systemd scope; seccomp=True adds a syscall denylist
+    (both require contained=True). Unsupported hosts fail closed.
     """
     if timeout_seconds <= 0 or grace_seconds <= 0:
         raise ValueError("timeout_seconds and grace_seconds must be positive")
     if quotas and not contained:
         raise ValueError("quotas=True requires contained=True")
+    if seccomp and not contained:
+        raise ValueError("seccomp=True requires contained=True")
     paths = prepare_workdir()
     register_cleanup(paths.root)
     scope_unit: str | None = None
@@ -156,41 +154,34 @@ def run_bounded(
             if bus_env is None:
                 return _infra("quota execution unsupported on this host: no user bus address")
             scope_unit = f"attest-scope-{secrets.token_hex(8)}.scope"
-        args = (func, paths, snapshot_root, contained, scope_unit, bus_env)
+        args = (func, paths, snapshot_root, contained, scope_unit, bus_env, seccomp)
         env = build_worker_environ({"PYTHONPYCACHEPREFIX": str(paths.pycache)})
         with guarded_spawn(_worker_main, args, environ=env, cwd=paths.root) as proc:
             supervised = supervise_worker(
                 proc, paths, timeout_seconds=timeout_seconds, grace_seconds=grace_seconds
             )
+            resources = collect_resources(scope_unit)
             if supervised.phase is WorkerPhase.CLEANUP_FAILED:
-                return AttemptReport(
-                    AttemptOutcome.INFRA_FAILURE,
-                    (),
-                    f"worker cleanup failed: {supervised.detail}" + failure_suffix(paths),
-                )
+                detail = f"worker cleanup failed: {supervised.detail}" + failure_suffix(paths)
+                return with_resources(_infra(detail), resources)
             if supervised.timed_out:
-                return AttemptReport(
-                    AttemptOutcome.INFRA_FAILURE,
-                    (),
-                    f"worker exceeded {timeout_seconds:g}s deadline and was terminated"
-                    + failure_suffix(paths),
-                )
+                detail = f"worker exceeded {timeout_seconds:g}s deadline and was terminated"
+                return with_resources(_infra(detail + failure_suffix(paths)), resources)
             if supervised.exitcode != 0:
-                return _crashed(supervised.exitcode, failure_suffix(paths))
+                crashed = _crashed(supervised.exitcode, failure_suffix(paths))
+                return with_resources(crashed, resources)
             if scope_unit is not None:
                 scope_error = scopes.terminate_scope_by_unit(scope_unit, scopes.QuotaLimits())
                 scope_unit = None
                 if scope_error is not None:
-                    detail = f"scope teardown failed: {scope_error}" + failure_suffix(paths)
-                    return _infra(detail)
+                    detail = f"scope teardown failed: {scope_error}{failure_suffix(paths)}"
+                    return with_resources(_infra(detail), resources)
             try:
-                return decode_attempt_report(read_result_file(paths.result))
+                report = decode_attempt_report(read_result_file(paths.result))
+                return with_resources(report, resources)
             except SandboxEnvelopeError as exc:
-                return AttemptReport(
-                    AttemptOutcome.INFRA_FAILURE,
-                    (),
-                    f"worker result invalid: {exc}" + failure_suffix(paths),
-                )
+                detail = f"worker result invalid: {exc}" + failure_suffix(paths)
+                return with_resources(_infra(detail), resources)
     finally:
         if scope_unit is not None:
             scopes.terminate_scope_by_unit(scope_unit, scopes.QuotaLimits())

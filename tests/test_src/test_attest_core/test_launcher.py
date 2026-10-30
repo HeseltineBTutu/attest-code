@@ -59,7 +59,9 @@ def test_spawn_failure_closes_result_pipe(tmp_path: Path, monkeypatch: pytest.Mo
 
     monkeypatch.setattr(os, "pipe", _tracking_pipe)
     snap = tmp_path / "snap"
-    (snap / "src" / "attest_core").mkdir(parents=True)
+    mod = snap / "src" / "attest_core"
+    mod.mkdir(parents=True)
+    (mod / "contained_runner.py").write_text("RUNNER_PROTOCOL_VERSION = 2\n")
     paths = _workdir(tmp_path)
     monkeypatch.setattr(subprocess, "Popen", _boom_popen)
     with pytest.raises(RuntimeError, match="stop-before-spawn"):

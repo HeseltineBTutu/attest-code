@@ -435,12 +435,51 @@ target code remains out of scope.
   Residual: same-UID identity, vsock on older kernels, workload
   control of its own netns interior (confined), kernel/netstack
   escape out of scope as before.
-- M1/M2/M3-A/M3-B explicit non-claims: the host UID is unchanged
+- M4 seccomp denylist (Linux, explicit opt-in via
+  `run_bounded(..., contained=True, seccomp=True)`): a
+  default-allow BPF denylist (43 rules: mount/module, host
+  control, BPF/userfaultfd/perf/io_uring, keyrings,
+  cross-process, namespaces, seccomp itself) installed by init
+  after rlimits, before snapshot imports. Denied calls die with
+  SECCOMP_RET_KILL_PROCESS (whole group SIGSYS, RLIMIT_CORE=0
+  suppresses dumps); legacy clone is argument-filtered on
+  namespace-creation flags and clone3 fails ENOSYS so glibc
+  falls back to filterable clone. An arch gate plus x32-bit
+  handling kills non-native callers; unknown architectures and
+  kernels without KILL_PROCESS refuse installation (fail
+  closed, never silent). Exercised by `test_seccomp.py`
+  (exact-bytes builder test, per-rule live SIGSYS deaths from
+  real forked children, allowed-controls, fork inheritance,
+  ENOSYS-then-fork) and `test_seccomp_compat.py` (9 enforced
+  reruns of the M1/M2/bootstrap/M3 batteries).
+  Residual: enforcement is opt-in (the default contained path
+  is unfiltered). Inheritance is proven for fork/clone only: a
+  forked child demonstrably inherits the filter (dies on
+  mount) and raw clone with namespace flags demonstrably
+  dies. execve inheritance rests solely on the kernel semantic
+  that filters persist across exec — untested here, since no
+  loader is mounted in-namespace and failed execs prove
+  nothing (they fail identically unenforced); execve-allowed
+  itself is pinned via ENOENT-on-missing-path. glibc clone3
+  fallback is proven (ENOSYS, fork keeps working after it).
+  Production enforcement is KILL_PROCESS-only: no TRAP mode
+  exists in the implementation, and the omit-based ddmin
+  harness is diagnostic only, never certifying. prctl stays
+  allowed (60-op multiplexer, self-directed/caps-gated);
+  sockets stay with M3-B; enforcement-mode reruns are
+  required per toolchain bump. M4 probing also found that
+  M2's detached-sleeper exec likely fails the same ENOENT, so
+  M2's descendant-liveness evidence (killable zombie, not a
+  running sleeper) needs re-examination in a follow-up.
+- M1/M2/M3-A/M3-B/M4 explicit non-claims: the host UID is unchanged
   (uid 1000 on both sides; the mount boundary, not identity,
-  carries filesystem safety). No seccomp, no traffic allowlist,
+  carries filesystem safety). No traffic allowlist,
   and no CPU/NPROC rlimits (documented hazards). cgroup quotas apply
   only with quotas=True on hosts where launch-into-scope verifies
   end to end (bare-metal systemd sessions; GitHub CI unverified);
+  seccomp filtering applies only with seccomp=True on x86_64 or
+  aarch64 hosts whose kernel offers KILL_PROCESS (aarch64
+  enforcement itself needs hardware to run).
   the default path still relies on rlimits and tmpfs caps, and
   namespace teardown remains the lifecycle signal there. Hosts
   without user namespaces and Windows stay on the existing

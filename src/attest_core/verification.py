@@ -49,11 +49,16 @@ class CheckEvidence:
 
 @dataclasses.dataclass(frozen=True)
 class AttemptReport:
-    """Outcome of a single fresh execution of the checks."""
+    """Outcome of a single fresh execution of the checks.
+
+    ``detail`` is the worker's result verbatim; ``resources`` carries
+    parent-collected evidence (quota counters), never worker output.
+    """
 
     outcome: AttemptOutcome
     checks: tuple[CheckEvidence, ...]
     detail: str
+    resources: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -95,10 +100,12 @@ def run_verification(
             outcome = report.outcome
             checks = tuple(report.checks)
             detail = report.detail
+            resources = report.resources
         except Exception as exc:
             outcome = AttemptOutcome.INFRA_FAILURE
             checks = ()
             detail = f"attempt raised {type(exc).__name__}: {exc}"
+            resources = ""
         for check in checks:
             evidence.append(
                 EvidenceRecord(
@@ -118,6 +125,7 @@ def run_verification(
             target=invariant.invariant_id,
             outcome=outcome.value,
             detail=detail,
+            resources=resources,
             revision=revision,
             config_digest=config_digest,
             attempt=attempt_no,

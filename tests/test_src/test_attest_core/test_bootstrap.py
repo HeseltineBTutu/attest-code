@@ -162,7 +162,9 @@ def test_launcher_disables_site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(subprocess, "Popen", _fake_popen)
     snap = tmp_path / "snap"
-    (snap / "src" / "attest_core").mkdir(parents=True)
+    mod = snap / "src" / "attest_core"
+    mod.mkdir(parents=True)
+    (mod / "contained_runner.py").write_text("RUNNER_PROTOCOL_VERSION = 2\n")
     paths = SandboxWorkdir(
         root=tmp_path,
         result=tmp_path / "result.json",

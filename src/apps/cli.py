@@ -71,6 +71,14 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--target", choices=TARGETS, default="repaired")
     verify.add_argument("--timeout", type=float, default=60.0)
     verify.add_argument("--format", choices=("text", "json"), default="text")
+    verify.add_argument(
+        "--exec",
+        choices=("standard", "contained", "hardened"),
+        default="standard",
+        help="worker isolation: standard (S1/S2 supervision), contained "
+        "(+ namespaces/filesystem), hardened (+ quotas/seccomp where "
+        "the host supports them; refused otherwise)",
+    )
     return parser
 
 
@@ -94,6 +102,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             target=args.target,
             timeout_seconds=args.timeout,
             output_format=args.format,
+            exec_profile=args.exec,
         )
         return _VERDICT_EXITS[verdict]
     except Exception as exc:

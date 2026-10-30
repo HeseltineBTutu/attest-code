@@ -115,12 +115,13 @@ def _counter(path: str, key: str) -> int:
 def read_scope_events(scope_path: str) -> dict[str, int]:
     """Bounded resource counters; unreadable scope raises ScopeError."""
     try:
+        events = _counter(os.path.join(scope_path, "memory.events"), "oom")
         mem = _counter(os.path.join(scope_path, "memory.events"), "oom_kill")
         pids = _counter(os.path.join(scope_path, "pids.events"), "max")
         cpu = _counter(os.path.join(scope_path, "cpu.stat"), "throttled_usec")
     except (OSError, ValueError) as exc:
         raise ScopeError(f"cannot read scope events: {exc}") from exc
-    return {"oom_kill": mem, "pids_max": pids, "throttled_usec": cpu}
+    return {"oom": events, "oom_kill": mem, "pids_max": pids, "throttled_usec": cpu}
 
 
 def terminate_scope_by_unit(

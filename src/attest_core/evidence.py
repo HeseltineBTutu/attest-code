@@ -33,7 +33,11 @@ def sha256_hex(data: bytes) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class EvidenceRecord:
-    """One observed check result. Versioned and content-addressed."""
+    """One observed check result. Versioned and content-addressed.
+
+    ``resources`` holds parent-collected quota evidence on attempt
+    summaries only; per-check records leave it empty.
+    """
 
     schema_version: int
     check_id: str
@@ -43,6 +47,7 @@ class EvidenceRecord:
     revision: str
     config_digest: str
     attempt: int
+    resources: str = ""
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -54,6 +59,7 @@ class EvidenceRecord:
             "revision": self.revision,
             "config_digest": self.config_digest,
             "attempt": self.attempt,
+            "resources": self.resources,
         }
 
     def digest(self) -> str:

@@ -1,11 +1,6 @@
-"""Authoritative verification flow behind `attest verify`.
-
-The flow refuses unverifiable setups instead of guessing: the invariant
-must carry a valid approval for its exact content digest, and the working
-tree must match the requested revision with no relevant uncommitted
-changes. Checks run in bounded worker subprocesses; a source change
-detected after the run overrides any verdict with INCONCLUSIVE.
-"""
+"""Authoritative verification behind `attest verify`: refuse unverifiable
+setups (approval, revision, snapshot) instead of guessing; bounded workers
+run checks; mid-run drift forces INCONCLUSIVE."""
 
 from __future__ import annotations
 
@@ -23,6 +18,7 @@ from apps.approvals import find_approval, load_approvals, select_invariant
 from apps.output import render_json, render_text
 from attest_core.bounds import run_bounded
 from attest_core.evidence import ATTESTATION_SCHEMA_VERSION, Attestation
+from attest_core.exec_profile import exec_report, preflight_exec_profile, quota_settings
 from attest_core.git import check_snapshot, fingerprint
 from attest_core.invariants import (
     invariant_content_digest,
@@ -56,11 +52,9 @@ class VerifyError(Exception):
 
 
 class SnapshotDriftError(Exception):
-    """Raised when the source snapshot drifts during an attempt.
+    """Snapshot drift mid-attempt: the orchestrator maps it to INFRA_FAILURE.
 
-    Handled by the orchestrator's generic per-attempt path as an
-    infrastructure failure (evidence preserved), so drift can only yield
-    INCONCLUSIVE, never FAILED or PASSED.
+    Evidence is preserved; drift can only yield INCONCLUSIVE, never a verdict.
     """
 
 
@@ -93,10 +87,13 @@ def _settings(
     snapshot_digest: str,
     timeout_seconds: float,
     runtime: Mapping[str, str],
+    profile: str,
 ) -> dict[str, str]:
     return {
         "checks": "scope-coverage,unauthenticated-rejected,non-admin-denied,admin-allowed",
         "client": "attest-cli",
+        "exec.profile": profile,
+        **quota_settings(profile),
         "scope": ",".join(sorted(scope)),
         "snapshot": snapshot,
         "snapshot.sha256": snapshot_digest,
@@ -127,6 +124,7 @@ def run_verify(
     timeout_seconds: float,
     output_format: str,
     stdout: TextIO | None = None,
+    exec_profile: str = "standard",
 ) -> Verdict:
     """Verify the demo target; return the authoritative verdict."""
     stdout = sys.stdout if stdout is None else stdout
@@ -134,6 +132,7 @@ def run_verify(
         raise VerifyError("timeout must be positive")
     if output_format not in ("text", "json"):
         raise VerifyError(f"unknown format: {output_format}")
+    resolved = preflight_exec_profile(exec_profile)
     root = resolve_repo_root(repo)
     # Pre-spawn preflight: refuse hostile startup modules before the first
     # child process (the origin probe) can execute them. Nothing above this
@@ -174,14 +173,12 @@ def run_verify(
     scope = tuple(invariant.scope)
 
     def run_checks() -> AttemptReport:
-        # Per-attempt drift detection against the clean baselines: live dirt
-        # or snapshot tampering that persists past any attempt boundary
-        # fails that attempt as an infrastructure failure. A change made
-        # and reverted strictly inside one attempt remains invisible (see
-        # security-model.md).
+        # Drift past any attempt boundary fails that attempt (infra failure);
+        # plant-and-revert strictly inside one attempt stays invisible by design.
         _guard_attempt_snapshot(root, exec_snapshot, before)
         worker = functools.partial(run_target_attempt, target, scope)
-        report = run_bounded(worker, timeout_seconds, snapshot_root=exec_snapshot.root)
+        opts = {key: value for key, value in resolved.flags().items() if value}
+        report = run_bounded(worker, timeout_seconds, snapshot_root=exec_snapshot.root, **opts)
         _guard_attempt_snapshot(root, exec_snapshot, before)
         return report
 
@@ -196,6 +193,7 @@ def run_verify(
             snapshot_digest=exec_snapshot.digest,
             timeout_seconds=timeout_seconds,
             runtime=runtime,
+            profile=resolved.requested,
         ),
         run_checks=run_checks,
     )
@@ -210,6 +208,7 @@ def run_verify(
             coverage=coverage,
             snapshot_changed=snapshot_changed,
             stdout=stdout,
+            exec_info=exec_report(resolved, [attempt.outcome for attempt in report.attempts]),
         )
     else:
         render_text(
@@ -218,5 +217,6 @@ def run_verify(
             coverage=coverage,
             snapshot_changed=snapshot_changed,
             stdout=stdout,
+            exec_info=exec_report(resolved, [attempt.outcome for attempt in report.attempts]),
         )
     return report.verdict

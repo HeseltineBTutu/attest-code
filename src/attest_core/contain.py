@@ -1,11 +1,9 @@
 """M1 Linux filesystem isolation: outer orchestration (trusted side).
 
-The outer worker (existing S1/S2 identity: process-group leader, timeout
-target) launches a contained runner over pipes and relays its result
-into the existing file protocol. The runner executes checks inside
-user, mount, PID, and network namespaces; this module never enters a namespace
-and never runs check code. Parent-side supervision, capture bounds,
-and result validation are unchanged.
+The outer worker (S1/S2 identity) launches a contained runner over
+pipes and relays its result into the file protocol. Checks run in
+user/mount/PID/network namespaces; this module never enters one or
+runs check code. Supervision, capture bounds, and validation unchanged.
 
 Containment is explicit opt-in (``run_bounded(..., contained=True)``):
 check callables must be importable from the snapshot inside the fresh
@@ -21,7 +19,7 @@ import sys
 import threading
 from pathlib import Path
 
-from attest_core import scopes
+from attest_core import runner_protocol, scopes
 from attest_core.envelope import MAX_RESULT_BYTES
 from attest_core.ns_setup import die_with_parent
 from attest_core.sandbox import MAX_CAPTURE_BYTES, SandboxWorkdir
@@ -30,7 +28,7 @@ MAX_PICKLE_BYTES = 1048576
 """Largest outer-to-runner payload; production partials are tiny."""
 
 _BOOTSTRAP = (
-    "import sys; snapshot_src = sys.argv[1]\n"
+    "import sys;snapshot_src=sys.argv[1];sys.pycache_prefix=sys.argv[3]+'/pycache'\n"
     "stale = [m for m in sys.modules if m.partition('.')[0] in ('attest_core', 'attest_spec')]\n"
     "import sysconfig; _stdlib = sysconfig.get_path('stdlib')\n"
     "_platstdlib = sysconfig.get_path('platstdlib')\n"
@@ -98,20 +96,19 @@ def run_contained(
     paths: SandboxWorkdir,
     scope_unit: str | None = None,
     bus_env: dict[str, str] | None = None,
+    seccomp: bool = False,
 ) -> None:
     """Run checks contained; relay result and captures into the workdir.
 
     Spawns the contained runner with the pickled callable on stdin and
-    a dedicated result fd. A snapshot without first-party sources is
-    refused before spawning. Pipes are drained by bounded subscriber
-    threads before reaping, so a chatty runner cannot deadlock the
-    relay. Timeout enforcement stays with the parent's S2 supervision;
-    this function blocks until the runner exits. Capture files are
-    always written (bounded); any failure raises ContainedError for
-    the caller to map to INFRA_FAILURE. With scope_unit, systemd
-    launches the runner inside a fresh quota scope (manager-placed
-    at exec: migration across delegation boundaries is denied), and
-    the runner verifies its own placement before forking.
+    a dedicated result fd. Snapshots without first-party sources are
+    refused before spawning. Bounded subscriber threads drain pipes
+    before reaping, so a chatty runner cannot deadlock the relay. S2
+    supervision owns timeouts; this function blocks until the runner
+    exits. Captures are always written (bounded); failures raise
+    ContainedError for the caller to map to INFRA_FAILURE. With
+    scope_unit, systemd launches the runner inside a fresh quota
+    scope; with seccomp, the runner installs a syscall denylist.
     """
     if snapshot_root is None:
         raise ContainedError("contained execution requires a snapshot")
@@ -119,7 +116,10 @@ def run_contained(
         raise ContainedError(f"snapshot incomplete: no attest_core in {snapshot_root / 'src'}")
     if len(payload) > MAX_PICKLE_BYTES:
         raise ContainedError(f"contained payload exceeds {MAX_PICKLE_BYTES} bytes")
+    if not runner_protocol.is_supported(p := runner_protocol.snapshot_protocol(snapshot_root)):
+        raise ContainedError(f"snapshot runner protocol v{p} unsupported")
     scope_arg = scope_unit or ""
+    seccomp_arg = "1" if seccomp else ""
     result_r, result_w = os.pipe()
     cmd = [
         sys.executable,
@@ -131,6 +131,7 @@ def run_contained(
         str(result_w),
         str(paths.root),
         scope_arg,
+        seccomp_arg,
     ]
     launcher_env = {"LC_ALL": "C.UTF-8"}
     if scope_unit is not None:

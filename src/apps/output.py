@@ -27,6 +27,14 @@ def _attempt_details(report: VerificationReport) -> dict[int, str]:
     return details
 
 
+def _attempt_resources(report: VerificationReport) -> dict[int, str]:
+    found: dict[int, str] = {}
+    for record in report.evidence:
+        if record.check_id == ATTEMPT_SUMMARY_CHECK_ID and record.resources:
+            found[record.attempt] = record.resources
+    return found
+
+
 def render_text(
     report: VerificationReport,
     *,
@@ -34,11 +42,16 @@ def render_text(
     coverage: str,
     snapshot_changed: bool,
     stdout: TextIO | None = None,
+    exec_info: dict[str, Any] | None = None,
 ) -> None:
     """Render the report as `key: value` lines."""
     stdout = sys.stdout if stdout is None else stdout
     details = _attempt_details(report)
+    resources = _attempt_resources(report)
     stdout.write(f"verdict: {report.verdict.value}\n")
+    if exec_info is not None:
+        stdout.write(f"exec-requested: {exec_info['requested']}\n")
+        stdout.write(f"exec-enforcement: {exec_info['enforcement']}\n")
     stdout.write(f"invariant: {invariant.invariant_id} v{invariant.version}\n")
     stdout.write(f"content-digest: {invariant_content_digest(invariant)}\n")
     stdout.write(f"revision: {report.revision}\n")
@@ -51,6 +64,8 @@ def render_text(
         stdout.write(
             f"  {index}: {attempt.outcome.value} evidence={attempt.evidence_hash} {detail}\n"
         )
+        if resources.get(index):
+            stdout.write(f"    resources: {resources[index]}\n")
     stdout.write("evidence:\n")
     for record in report.evidence:
         stdout.write(
@@ -68,10 +83,13 @@ def render_json(
     coverage: str,
     snapshot_changed: bool,
     stdout: TextIO | None = None,
+    exec_info: dict[str, Any] | None = None,
 ) -> None:
     """Render the report as versioned, deterministic JSON."""
     stdout = sys.stdout if stdout is None else stdout
     details = _attempt_details(report)
+    resources = _attempt_resources(report)
+    execution: dict[str, Any] = dict(exec_info) if exec_info is not None else {}
     payload: dict[str, Any] = {
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "command": "verify",
@@ -85,6 +103,7 @@ def render_json(
         "revision": report.revision,
         "snapshot_changed": snapshot_changed,
         "config_digest": report.config_digest,
+        "execution": execution,
         "scope": {"declared": sorted(invariant.scope), "coverage": coverage},
         "attempts": [
             {
@@ -92,6 +111,7 @@ def render_json(
                 "outcome": attempt.outcome.value,
                 "evidence_hash": attempt.evidence_hash,
                 "detail": details.get(index, ""),
+                "resources": resources.get(index, ""),
             }
             for index, attempt in enumerate(report.attempts, start=1)
         ],

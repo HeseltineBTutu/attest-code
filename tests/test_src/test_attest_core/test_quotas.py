@@ -48,6 +48,14 @@ def _workdir(root: Path) -> SandboxWorkdir:
     )
 
 
+def _snap_v2(root: Path) -> Path:
+    snap = root / "snap"
+    mod = snap / "src" / "attest_core"
+    mod.mkdir(parents=True)
+    (mod / "contained_runner.py").write_text("RUNNER_PROTOCOL_VERSION = 2\n")
+    return snap
+
+
 def test_quotas_requires_contained() -> None:
     with pytest.raises(ValueError, match="contained"):
         run_bounded(probe_pid, 5.0, quotas=True)
@@ -66,8 +74,7 @@ def test_quotas_unsupported_fails_closed(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_invalid_scope_unit_fails_closed(tmp_path: Path) -> None:
-    snap = tmp_path / "snap"
-    (snap / "src" / "attest_core").mkdir(parents=True)
+    snap = _snap_v2(tmp_path)
     with contextlib.suppress(FileNotFoundError), pytest.raises(ContainedError, match="exited"):
         run_contained(
             payload=pickle.dumps(probe_pid),
@@ -105,8 +112,7 @@ def test_quota_launch_splits_prefix_and_runner_env(
         seen_env.update(kwargs["env"])
         raise RuntimeError("stop-after-capture")
 
-    snap = tmp_path / "snap"
-    (snap / "src" / "attest_core").mkdir(parents=True)
+    snap = _snap_v2(tmp_path)
     monkeypatch.setattr(subprocess, "Popen", _spy_popen)
     bus = {"XDG_RUNTIME_DIR": "/run/user/1000"}
     with pytest.raises(RuntimeError, match="stop-after-capture"):
@@ -124,8 +130,7 @@ def test_quota_launch_splits_prefix_and_runner_env(
 
 
 def test_quota_launch_without_bus_fails_closed(tmp_path: Path) -> None:
-    snap = tmp_path / "snap"
-    (snap / "src" / "attest_core").mkdir(parents=True)
+    snap = _snap_v2(tmp_path)
     with pytest.raises(ContainedError, match="bus address"):
         run_contained(
             payload=b"{}", snapshot_root=snap, paths=_workdir(tmp_path), scope_unit="u.scope"

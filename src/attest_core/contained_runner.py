@@ -1,17 +1,12 @@
-"""Contained runner: namespaces, mounts, then checks (Linux only).
+"""Contained runner: namespaces, mounts, checks (Linux only).
 
-Executed fresh via ``python -I -c`` with argv ``[snapshot_src, result_fd,
-stage_dir, scope_unit?]`` and the pickled check callable on stdin. Top-level imports
-are stdlib plus the side-effect-free namespace bindings. The runner
-forks a grandchild that unshares user+mount+PID+network namespaces together
-(maps are written parent-side: self-mapping is rejected on hardened
-kernels, as is lone PID unsharing), then forks again: that init
-builds the private root, scrubs the environment, applies rlimits,
-repoints imports at the in-namespace snapshot, self-checks origins,
-runs checks, and writes one result envelope to the inherited result
-fd. When init exits, the kernel SIGKILLs every remaining descendant.
-The runner itself never enters a namespace and relays only the
-grandchild's exit status.
+Fresh ``python -I -c`` with argv ``[src, result_fd, stage, scope?, seccomp?]``
+and the pickled check on stdin. The runner forks init via :func:`run_mapped_child`
+(user+mount+PID+network, parent-written maps), never entering a namespace itself.
+Init builds the private root, scrubs the environment, applies rlimits (+seccomp
+when requested), repoints imports at the snapshot, self-checks origins, runs
+checks, and writes one result envelope; its exit SIGKILLs every descendant, and
+the runner relays only the exit status.
 
 Never imported on Windows; never imported pre-setup anywhere else.
 """
@@ -30,8 +25,10 @@ from pathlib import Path
 from attest_core.ns_setup import RunnerError, run_mapped_child
 from attest_core.nsmounts import build_root
 from attest_core.scope_enter import ScopeError, verify_self_in_scope
+from attest_core.seccomp import install_denylist
 
 MAX_PICKLE_BYTES = 1048576
+RUNNER_PROTOCOL_VERSION = 2  # wire contract; the parent probes this value
 
 RLIMIT_AS_BYTES = 1 << 30
 RLIMIT_FSIZE_BYTES = 64 << 20
@@ -68,13 +65,10 @@ def _fix_sys_path() -> None:
     # Evict the bootstrap generation: the runner, ns_setup, and package
     # shell were necessarily loaded from host paths pre-setup. Running
     # frames keep working (they hold their own references); every later
-    # first-party import resolves fresh inside /snapshot, which the
-    # origin self-check then proves. Eviction is prefix-based so no
-    # pre-setup first-party module — including attest_spec or a
-    # startup-preloaded submodule — can survive the transition.
-    stale = [
-        name for name in sys.modules if name.partition(".")[0] in ("attest_core", "attest_spec")
-    ]
+    # first-party import resolves fresh inside /snapshot, which the origin
+    # self-check then proves. Prefix-based eviction leaves no pre-setup
+    # module — including attest_spec or startup-preloaded ones — behind.
+    stale = [n for n in sys.modules if n.partition(".")[0] in ("attest_core", "attest_spec")]
     for _mod in stale:
         sys.modules.pop(_mod, None)
     import importlib
@@ -89,17 +83,16 @@ def _scrub_env() -> None:
 
 
 def _apply_rlimits() -> None:
-    """Per-process floor: address space, file size, fd count.
+    """Per-process floor: address space, file size, fd count, no core dumps.
 
-    Deliberately not CPU time (the parent's wall-clock deadline owns
-    attempt bounding; a blind CPU cap could kill slow-legit checks)
-    and not process count (RLIMIT_NPROC counts host-wide per UID, so a
-    low cap misfires on busy hosts). cgroup quotas are M3 work.
+    CPU time and process count stay unbounded here (wall-clock deadline
+    owns bounding; NPROC is host-wide per UID); cgroups own quotas (M3-A).
     """
     try:
         resource.setrlimit(resource.RLIMIT_AS, (RLIMIT_AS_BYTES, RLIMIT_AS_BYTES))
         resource.setrlimit(resource.RLIMIT_FSIZE, (RLIMIT_FSIZE_BYTES, RLIMIT_FSIZE_BYTES))
         resource.setrlimit(resource.RLIMIT_NOFILE, (RLIMIT_NOFILE, RLIMIT_NOFILE))
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     except OSError as exc:
         raise RunnerError(f"rlimit setup failed: {exc}") from exc
 
@@ -126,12 +119,16 @@ def _on_sigterm(signum: int, frame: object) -> None:
     raise RunnerError("received SIGTERM")
 
 
-def _contained_main(payload: bytes, snapshot_root: str, result_fd: int, stage: str) -> int:
+def _contained_main(
+    payload: bytes, snapshot_root: str, result_fd: int, stage: str, seccomp_on: bool
+) -> int:
     """Grandchild body: boundary first, then imports, checks, one write."""
     signal.signal(signal.SIGTERM, _on_sigterm)
     build_root(snapshot_root, stage)
     _scrub_env()
     _apply_rlimits()
+    if seccomp_on:
+        install_denylist()
     _fix_sys_path()
     from attest_core.envelope import (
         MAX_DETAIL_CHARS,
@@ -160,11 +157,15 @@ def _contained_main(payload: bytes, snapshot_root: str, result_fd: int, stage: s
 
 def main(argv: list[str]) -> int:
     """Read the payload, run it mapped and contained, relay the status."""
-    if len(argv) not in (3, 4):
-        print("usage: contained_runner <snapshot_src> <result_fd> <stage> [scope]", file=sys.stderr)
+    if len(argv) not in (3, 4, 5):
+        print("usage: contained_runner <src> <fd> <stage> [scope] [seccomp]", file=sys.stderr)
         return 2
     snapshot_src, result_fd_text, stage_dir = argv[:3]
-    scope_unit = argv[3] if len(argv) == 4 and argv[3] else None
+    scope_unit = argv[3] if len(argv) >= 4 and argv[3] else None
+    if len(argv) == 5 and argv[4] not in ("", "1"):
+        print("seccomp flag must be '' or '1'", file=sys.stderr)
+        return 2
+    seccomp_on = len(argv) == 5 and argv[4] == "1"
     try:
         result_fd = int(result_fd_text)
     except ValueError:
@@ -184,7 +185,7 @@ def main(argv: list[str]) -> int:
                 os._exit(0)
             os.waitpid(first, 0)
         return run_mapped_child(
-            lambda: _contained_main(payload, snapshot_root, result_fd, stage_dir),
+            lambda: _contained_main(payload, snapshot_root, result_fd, stage_dir, seccomp_on),
             parent_close=(result_fd,),
         )
     except (RunnerError, ScopeError) as exc:

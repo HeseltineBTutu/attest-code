@@ -39,7 +39,18 @@ returns). The M3-B network battery lives in `test_netns.py`
 (route/DNS/metadata/loopback/abstract/fd-audit probes, all via
 `run_bounded(..., contained=True)`); the abstract-socket test
 skips where that fixture is unavailable, and the
-quotas-composition test skips with the quota marker.
+quotas-composition test skips with the quota marker. The M4
+seccomp battery lives in `test_seccomp.py` (builder byte tests,
+per-rule live SIGSYS evidence, allowed/inherit/fallback
+controls, ddmin diagnostic) plus `test_seccomp_compat.py` (9
+enforced reruns of earlier batteries via `run_bounded(...,
+contained=True, seccomp=True)`); the quota-composition test
+skips with the quota marker. In-namespace exec cannot succeed
+(no loader is mounted), so exec-dependent controls are written
+as fork/ENOENT equivalents instead. A failed exec is not
+enforcement evidence — it fails identically without the
+filter — so only fork-inheritance and the ENOENT-pinned
+execve claim are asserted.
 
 ## Executable documentation
 

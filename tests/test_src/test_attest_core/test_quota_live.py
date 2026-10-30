@@ -136,3 +136,33 @@ def test_quota_malformed_result_rejected(src_tree: Path) -> None:
     )
     assert report.outcome == AttemptOutcome.INFRA_FAILURE
     assert "invalid" in report.detail
+
+
+@NEEDS_QUOTAS
+def test_hardened_oom_reports_resources(src_tree: Path) -> None:
+    report = run_bounded(
+        probe_hog_memory,
+        60.0,
+        snapshot_root=src_tree,
+        contained=True,
+        quotas=True,
+        seccomp=True,
+    )
+    assert report.outcome == AttemptOutcome.INFRA_FAILURE
+    assert "[resources]" not in report.detail
+    assert "[resources]" in report.resources
+
+
+@NEEDS_QUOTAS
+def test_hardened_burn_reports_counters(src_tree: Path) -> None:
+    report = run_bounded(
+        probe_burn_cpu,
+        60.0,
+        snapshot_root=src_tree,
+        contained=True,
+        quotas=True,
+        seccomp=True,
+    )
+    assert report.outcome == AttemptOutcome.PASS
+    assert report.detail == "burned:4x2s"
+    assert "throttled_usec=" in report.resources
