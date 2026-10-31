@@ -86,9 +86,27 @@ input report is operator-supplied JSON: it is shape-validated, not
 attestation-verified by this tool, and it influences only the
 diagnostic prompt — never any verdict or evidence.
 
-## Next milestone (recommended)
+## Implemented (execution hardening: S1/S2, M1–M4, S3 profiles)
 
-- `attest_core.sandbox`: execution isolation and resource-limit interfaces.
+- S1/S2 worker sandbox: exposure reduction (minimal env, controlled
+  cwd, JSON protocol, bounds) plus process-group supervision with
+  verified-empty-tree cleanup.
+- M1/M2/M3 containment: user+mount+PID+network namespaces,
+  pivot-root filesystem isolation, per-process rlimits, PID
+  lifecycle, systemd resource scopes, and network isolation.
+- M4 seccomp: default-allow BPF denylist installed by namespace
+  init, enforced with process kill, fail-closed by arch and kernel.
+- S3 execution profiles: `standard`/`contained`/`hardened` CLI
+  selection with capability preflight, quota values in the config
+  digest, per-attempt resource evidence, and runner protocol
+  versioning.
+
+## Remaining validation (before S3 closure)
+
+- Live quota/seccomp/hardened enforcement evidence on a capable
+  Linux host (systemd user manager, cgroup v2, KILL_PROCESS).
+- Workload-measured validation of the provisional quota values.
+- Platform capability matrix documenting supported profiles.
 
 ## Planned after that
 

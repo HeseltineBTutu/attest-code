@@ -15,7 +15,8 @@
 - `attest_core.git` (implemented): revision resolution and the clean-snapshot
   policy with before/after fingerprints.
 - `attest_core.bounds` (implemented): per-attempt worker subprocesses with
-  wall-clock deadlines (bounding, not a sandbox).
+  wall-clock deadlines (bounding, not a sandbox); passes execution
+  flags into contained/quota runs and attaches resource evidence.
 - `attest_core.origin` (implemented): repository-root canonicalization,
   input containment, and parent/worker module-origin binding.
 - `attest_core.snapshot` (implemented): exports the verified execution
@@ -39,6 +40,30 @@
   membership observation (`/proc` scan with a conservative fallback).
 - `attest_core.envelope` (implemented S1): versioned JSON worker-result
   protocol with strict schema validation, replacing pickle IPC.
+- `attest_core.exec_profile` (implemented S3): named execution
+  profiles (`standard`/`contained`/`hardened`), the authoritative
+  profile-to-flags mapping, lazy capability preflight, stable
+  quota settings for the config digest, and enforcement
+  derivation from attempt outcomes.
+- `attest_core.resource_evidence` (implemented S3): per-attempt
+  scope-counter collection into the separate `resources`
+  evidence field; explicit unavailable markers, never zeros.
+- `attest_core.scope_metrics` (implemented S3): per-scope
+  cgroup readers for peak memory, peak tasks, and cumulative
+  CPU, with documented units and sampling semantics.
+- `attest_core.runner_protocol` (implemented S3): parent/runner
+  wire-protocol version contract with pre-spawn snapshot probing.
+- `attest_core.seccomp` (implemented M4): BPF denylist construction
+  and fail-closed installation plus availability probing.
+- `attest_core.seccomp_probes` (implemented M4): per-rule live
+  probes, allowed/inherit/fallback controls, ddmin diagnostic.
+- `attest_core.contained_runner` (implemented M1/M2/M3/M4): the
+  in-namespace runner — scope placement self-check, namespace
+  entry, private root, rlimits, seccomp install, workload,
+  single result envelope.
+- `attest_core.scopes` (implemented M3-A): transient systemd scope
+  launch-into-scope, limit verification, event counters, and
+  stop-and-verify-empty teardown.
 - `apps.cli` (implemented): argparse entry point mapping outcomes to exit
   codes; no CLI framework dependency.
 - `apps.approvals` (implemented): YAML approval store keyed by id/version.
@@ -71,15 +96,19 @@ in main dependencies as a provisional hackathon simplification.
    git-semantics files) is clean with no hidden executables, requires a
    valid approval for the exact content digest, confines inputs to the
    repo, proves loaded modules (parent and worker) originate from the
-   tree, and validates/binds the runtime environment.
+   tree, validates/binds the runtime environment, and resolves the
+   `--exec` profile with capability preflight (missing mandatory
+   capabilities refuse before any attempt; see security-model.md).
 5. `run_verification` requires a matching approval at invocation and raises
    instead of verdicting when it is absent or stale.
 6. Checks compare declared scope against the app's registered routes, then
    run 401/403/200 probes per endpoint over a fresh test client, each
-   attempt in a sandboxed worker subprocess (minimal env, controlled cwd,
+   attempt in a worker subprocess (minimal env, controlled cwd,
    per-attempt bytecode cache, bounded JSON result file, wall-clock
    deadline, supervised process group with TERM→KILL escalation and
-   verified-empty-tree cleanup).
+   verified-empty-tree cleanup) running under the selected profile —
+   plain workers for `standard`, the namespace runner for
+   `contained`, plus quotas and seccomp for `hardened`.
 7. The orchestrator genuinely re-executes the checks three times under one
    recorded revision and configuration digest, emitting per-check and
    per-attempt evidence records.

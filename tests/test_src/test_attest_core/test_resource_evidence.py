@@ -21,6 +21,7 @@ NEEDS_CONTAINMENT = pytest.mark.skipif(
 )
 
 _EVENTS = {"oom": 1, "oom_kill": 2, "pids_max": 3, "throttled_usec": 4000}
+_PEAKS = {"mem_peak": 123456, "pids_peak": 9, "cpu_usec": 67890}
 
 
 @pytest.fixture(scope="session")
@@ -43,8 +44,10 @@ def test_gone_scope_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_counters_format_exactly(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(scopes, "find_scope", lambda unit: "/sys/x.scope")
     monkeypatch.setattr(scopes, "read_scope_events", lambda path: dict(_EVENTS))
+    monkeypatch.setattr("attest_core.scope_metrics.read_peaks", lambda path: dict(_PEAKS))
     assert collect_resources("u.scope") == (
-        "[resources] oom=1 oom_kill=2 pids_max=3 throttled_usec=4000"
+        "[resources] oom=1 oom_kill=2 pids_max=3 throttled_usec=4000 "
+        "mem_peak=123456 pids_peak=9 cpu_usec=67890"
     )
 
 
@@ -67,6 +70,7 @@ def test_distinct_scopes_stay_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
     }
     monkeypatch.setattr(scopes, "find_scope", lambda unit: f"/sys/{unit}")
     monkeypatch.setattr(scopes, "read_scope_events", lambda path: seen[path.rsplit("/", 1)[1]])
+    monkeypatch.setattr("attest_core.scope_metrics.read_peaks", lambda path: dict(_PEAKS))
     first = collect_resources("a.scope")
     assert first == collect_resources("a.scope")
     assert first != collect_resources("b.scope")
@@ -93,7 +97,9 @@ def test_production_tamper_detected_with_counters(
     (scope / "cpu.max").write_text("200000 100000\n", encoding="ascii")
     (scope / "memory.events").write_text("oom_kill 7\n", encoding="ascii")
     (scope / "pids.events").write_text("max 0\n", encoding="ascii")
-    (scope / "cpu.stat").write_text("throttled_usec 11\n", encoding="ascii")
+    (scope / "cpu.stat").write_text("usage_usec 5000\nthrottled_usec 11\n", encoding="ascii")
+    (scope / "memory.peak").write_text("1048576\n", encoding="ascii")
+    (scope / "pids.peak").write_text("4\n", encoding="ascii")
     seen = [str(scope), str(scope), None, None]
     monkeypatch.setattr(scopes, "supports_quotas", lambda: True)
     monkeypatch.setattr(scopes, "launch_env", lambda: {"XDG_RUNTIME_DIR": "/x"})
@@ -103,6 +109,9 @@ def test_production_tamper_detected_with_counters(
     assert "memory.max" in report.detail
     assert "oom_kill=" not in report.detail
     assert "oom_kill=7" in report.resources
+    assert "mem_peak=1048576" in report.resources
+    assert "pids_peak=4" in report.resources
+    assert "cpu_usec=5000" in report.resources
 
 
 @NEEDS_CONTAINMENT
@@ -115,6 +124,7 @@ def test_counters_stay_with_their_attempt(src_tree: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(scopes, "launch_env", lambda: {"XDG_RUNTIME_DIR": "/x"})
     monkeypatch.setattr(scopes, "find_scope", lambda unit: "/sys/x.scope")
     monkeypatch.setattr(scopes, "read_scope_events", lambda path: reads.pop(0))
+    monkeypatch.setattr("attest_core.scope_metrics.read_peaks", lambda path: dict(_PEAKS))
     monkeypatch.setattr(scopes, "terminate_scope_by_unit", lambda unit, limits: None)
     one = run_bounded(probe_pid, 30.0, snapshot_root=src_tree, contained=True, quotas=True)
     two = run_bounded(probe_pid, 30.0, snapshot_root=src_tree, contained=True, quotas=True)
@@ -147,6 +157,7 @@ def test_collected_counters_annotate_failed_result(
     monkeypatch.setattr(scopes, "scope_argv", lambda limits, unit, cmd: cmd)
     monkeypatch.setattr(scopes, "find_scope", lambda unit: "/sys/x.scope")
     monkeypatch.setattr(scopes, "read_scope_events", lambda path: dict(_EVENTS))
+    monkeypatch.setattr("attest_core.scope_metrics.read_peaks", lambda path: dict(_PEAKS))
     monkeypatch.setattr(scopes, "terminate_scope_by_unit", lambda unit, limits: None)
     report = run_bounded(probe_pid, 30.0, snapshot_root=src_tree, contained=True, quotas=True)
     assert report.outcome == AttemptOutcome.INFRA_FAILURE

@@ -33,7 +33,7 @@ from attest_core.envelope import (
 from attest_core.ns_setup import supports_containment
 from attest_core.origin import OriginError, check_origins, report_worker_origins
 from attest_core.process_group import establish_worker_group
-from attest_core.resource_evidence import collect_resources, with_resources
+from attest_core.resource_evidence import collect_resources, mark_teardown, with_resources
 from attest_core.sandbox import (
     TERMINATE_GRACE_SECONDS,
     SandboxWorkdir,
@@ -161,6 +161,12 @@ def run_bounded(
                 proc, paths, timeout_seconds=timeout_seconds, grace_seconds=grace_seconds
             )
             resources = collect_resources(scope_unit)
+            if scope_unit is not None:
+                teardown_error = scopes.terminate_scope_by_unit(scope_unit, scopes.QuotaLimits())
+                scope_unit = None
+                resources = mark_teardown(resources, teardown_error)
+            else:
+                teardown_error = None
             if supervised.phase is WorkerPhase.CLEANUP_FAILED:
                 detail = f"worker cleanup failed: {supervised.detail}" + failure_suffix(paths)
                 return with_resources(_infra(detail), resources)
@@ -170,12 +176,9 @@ def run_bounded(
             if supervised.exitcode != 0:
                 crashed = _crashed(supervised.exitcode, failure_suffix(paths))
                 return with_resources(crashed, resources)
-            if scope_unit is not None:
-                scope_error = scopes.terminate_scope_by_unit(scope_unit, scopes.QuotaLimits())
-                scope_unit = None
-                if scope_error is not None:
-                    detail = f"scope teardown failed: {scope_error}{failure_suffix(paths)}"
-                    return with_resources(_infra(detail), resources)
+            if teardown_error is not None:
+                detail = f"scope teardown failed: {teardown_error}{failure_suffix(paths)}"
+                return with_resources(_infra(detail), resources)
             try:
                 report = decode_attempt_report(read_result_file(paths.result))
                 return with_resources(report, resources)

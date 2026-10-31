@@ -41,11 +41,12 @@
   explicit fixtures, never as model output.
 - `run_verification` and `attest verify` enforce the boundary at invocation:
   a missing or stale approval refuses verification instead of verdicting.
-- No OS-enforced sandbox isolation exists yet; untrusted execution stays
-  disabled. Checks run in worker subprocesses via a FastAPI test client
-  under the S1+S2 worker policy (minimal env, controlled cwd, JSON
-  results, supervised process group), and only verifier-owned check code
-  runs — model-provided code is never executed.
+- OS-enforced isolation exists only on the explicit contained/hardened
+  execution profiles (below); the default path is unchanged. Checks run
+  in worker subprocesses via a FastAPI test client under the S1+S2
+  worker policy (minimal env, controlled cwd, JSON results, supervised
+  process group), and only verifier-owned check code runs —
+  model-provided code is never executed.
 
 ## Revision integrity (MVP policy)
 
@@ -467,10 +468,19 @@ target code remains out of scope.
   harness is diagnostic only, never certifying. prctl stays
   allowed (60-op multiplexer, self-directed/caps-gated);
   sockets stay with M3-B; enforcement-mode reruns are
-  required per toolchain bump. M4 probing also found that
-  M2's detached-sleeper exec likely fails the same ENOENT, so
-  M2's descendant-liveness evidence (killable zombie, not a
-  running sleeper) needs re-examination in a follow-up.
+  required per toolchain bump. M4 probing had found that
+  M2's detached-sleeper exec failed the same ENOENT, leaving
+  only a killable zombie where a running sleeper was claimed;
+  the M2 probes were repaired to close that gap. The sleeper
+  is now fork-only (double-fork plus setsid, no exec, so the
+  missing in-namespace loader cannot turn it into exit-127)
+  and proves it executes by writing READY plus sustained
+  heartbeats — bytes a zombie cannot produce — read with a
+  deadline. The probe also verifies its stage argv carries the
+  test token (so the host-visible marker is really present)
+  and the test scans host command lines after teardown; a
+  failed handshake or missing token fails loudly instead of
+  passing as cleanup evidence.
 - M1/M2/M3-A/M3-B/M4 explicit non-claims: the host UID is unchanged
   (uid 1000 on both sides; the mount boundary, not identity,
   carries filesystem safety). No traffic allowlist,
@@ -489,6 +499,95 @@ target code remains out of scope.
   Unbounded worker *writes* can fill disk before failing closed.
   A worker whose validated report lies is still trusted —
   sandboxing the channel cannot authenticate its content.
+
+## Execution profiles (S3)
+
+Production verification selects worker isolation through one named
+profile (`attest verify ... --exec {standard,contained,hardened}`,
+default `standard`):
+
+- `standard`: the existing S1/S2 path — spawned worker, minimal env,
+  controlled cwd, JSON protocol, wall-clock deadline, process-group
+  supervision. No namespaces, quotas, or seccomp.
+- `contained`: adds user+mount+PID+network namespaces and filesystem
+  containment (M1/M2/M3-B) with per-process rlimits. No quotas, no
+  seccomp.
+- `hardened`: containment plus per-attempt systemd resource scopes
+  (M3-A) and the seccomp denylist (M4).
+
+Capability preflight runs before the first attempt and is not
+enforcement: `standard` needs nothing, `contained` needs namespace
+support, `hardened` needs namespaces, quotas, and seccomp. A
+request whose capabilities are missing is refused before any worker
+spawns (exit 3, no verdict, no attempts) — never silently downgraded
+to a weaker profile.
+
+Each hardened attempt runs inside its own fresh transient systemd
+user scope (launch-into-scope; migration is kernel-denied). Quotas
+are MemoryMax 512 MiB, TasksMax 64, CPUQuota 200%, plus
+MemorySwapMax=0 where the host has swap (provisional P0 values,
+unvalidated against measured workloads). The runner self-verifies
+scope placement; the parent re-verifies the limit files and confirms
+emptiness at teardown. Scope creation, placement, tamper, and
+teardown failures all map to infrastructure failure, never a
+verdict. There is no aggregate cap across concurrent verifications.
+
+The configuration digest binds `exec.profile` plus `quota.*`
+settings taken from the authoritative `QuotaLimits` (non-quota
+profiles bind an explicit off marker and claim no enforcement).
+Host-conditional facts stay out of the digest; runtime observations
+belong in per-attempt evidence.
+
+Resource counters ride a dedicated `resources` field on
+attempt-summary evidence records (attested with everything else),
+never inside worker `detail`. Counters are diagnostic: they record
+what a scope observed, not whether limits held, and they never
+select a verdict. The line carries event counters (`oom` and
+`oom_kill` counts, `pids_max` limit-hit count, `throttled_usec`
+throttled microseconds), peak metrics (`mem_peak` high-water
+bytes, `pids_peak` high-water task count, `cpu_usec` cumulative
+CPU microseconds), and a `teardown` token recording the scope
+cleanup outcome (`empty-verified`, or `failed(reason)` naming the
+failure). Peaks and events are independently observed from the
+live scope before teardown; the teardown token is recorded only
+after the scope stops. Missing scopes and unreadable counters
+yield explicit `unavailable(...)` markers, never fabricated
+zeros.
+
+Parent and runner agree on wire protocol v2 (a marker probed from
+the snapshot runner source, never imported). The parent refuses to
+spawn on any other version, and the runner rejects malformed
+argument shapes — mismatch fails closed to infrastructure failure.
+
+Seccomp (hardened only) is installed by namespace init after
+rlimits and before snapshot imports: a default-allow BPF denylist
+enforced with KILL_PROCESS, an x86_64/aarch64 arch gate with x32
+handling, argument-filtered legacy clone, and clone3 failing
+ENOSYS for glibc fallback (full policy in the M4 section above).
+Unknown architectures and kernels without KILL_PROCESS refuse
+installation instead of running unfiltered.
+
+Enforcement vocabulary — keep these five levels separate:
+
+- **Requested:** the profile the caller selected (`--exec`).
+- **Configured:** the settings and limits bound into the profile
+  mapping and configuration digest (flags, quota values, swap
+  policy). This says what *should* apply, not what did.
+- **Setup-completed:** every required setup and teardown operation
+  returned without detected failure (namespace dance, mounts,
+  rlimits, seccomp install, scope stop, emptiness). This is what
+  the `verified` enforcement status means: no attempt reported
+  `INFRA_FAILURE`, so no control was observed to fail.
+- **Independently observed:** quota limit files re-read at
+  teardown and resource counters collected from the live scope
+  before destruction. Only quotas receive this post-hoc
+  re-verification.
+- **Residual:** namespace membership and seccomp activation are
+  confirmed through fail-closed setup return codes, not
+  re-checked afterwards; same-UID host identity, kernel escape,
+  and all default-path limitations from the sections above
+  remain. Nothing here claims a complete sandbox or
+  tamper-proof execution.
 
 ## Endpoint inventory mechanism
 
@@ -517,8 +616,9 @@ target code remains out of scope.
   evidence presence).
 - The three-attempt rule is not a universal guarantee against
   nondeterminism: attempts run in separate worker processes but on one
-  machine without execution isolation, so they catch flaky or
-  non-reproducible results but cannot prove determinism.
+  machine, so they catch flaky or non-reproducible results but cannot
+  prove determinism. The default path has no execution isolation;
+  contained/hardened profiles add it as described below.
 
 ## Model-data hygiene (implemented integration)
 

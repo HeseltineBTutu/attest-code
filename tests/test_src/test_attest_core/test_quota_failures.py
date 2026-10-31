@@ -17,6 +17,8 @@ def _quota_mocks(monkeypatch: pytest.MonkeyPatch, counters: dict[str, int]) -> N
     monkeypatch.setattr(scopes, "launch_env", lambda: {"XDG_RUNTIME_DIR": "/x"})
     monkeypatch.setattr(scopes, "find_scope", lambda unit: "/sys/x.scope")
     monkeypatch.setattr(scopes, "read_scope_events", lambda path: dict(counters))
+    peaks = {"mem_peak": 2048, "pids_peak": 3, "cpu_usec": 100}
+    monkeypatch.setattr("attest_core.scope_metrics.read_peaks", lambda path: dict(peaks))
     monkeypatch.setattr(scopes, "terminate_scope_by_unit", lambda unit, limits: None)
 
 
@@ -32,6 +34,9 @@ def test_timeout_annotates_counters(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "deadline" in report.detail
     assert "throttled_usec=" not in report.detail
     assert "throttled_usec=5" in report.resources
+    assert "mem_peak=2048" in report.resources
+    assert "teardown=empty-verified" in report.resources
+    assert "teardown=" not in report.detail
 
 
 def test_crash_annotates_counters(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,6 +47,8 @@ def test_crash_annotates_counters(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "worker crashed (exit code 5)" in report.detail
     assert "oom_kill=" not in report.detail
     assert "oom_kill=3" in report.resources
+    assert "pids_peak=3" in report.resources
+    assert "teardown=empty-verified" in report.resources
 
 
 def test_cleanup_failure_annotates_counters(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -52,3 +59,5 @@ def test_cleanup_failure_annotates_counters(monkeypatch: pytest.MonkeyPatch) -> 
     assert "worker cleanup failed" in report.detail
     assert "pids_max=" not in report.detail
     assert "pids_max=9" in report.resources
+    assert "cpu_usec=100" in report.resources
+    assert "teardown=empty-verified" in report.resources

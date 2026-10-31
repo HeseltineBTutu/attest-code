@@ -6,6 +6,7 @@ import functools
 import os
 import secrets
 import shutil
+import tempfile
 import time
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from attest_core.quota_probes import (
     probe_hog_memory,
     probe_no_cgroupfs,
 )
+from attest_core.resource_evidence import parse_resources
 from attest_spec import AttemptOutcome
 
 
@@ -120,13 +122,30 @@ def test_quota_crash_is_infra_not_violation(src_tree: Path) -> None:
     assert "exited 5" in report.detail
 
 
-@NEEDS_QUOTAS
-def test_quota_detached_descendant_reaped(src_tree: Path) -> None:
+@pytest.fixture
+def token_tmpdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Unique-token TMPDIR so the runner family is host-identifiable.
+
+    The worker stage lands under TMPDIR and the stage path rides the
+    runner command line, which every fork descendant inherits. The
+    stdlib tempdir is patched alongside the env var because it caches
+    the default dir; env alone would be silently ignored mid-suite.
+    """
     token = f"qscope{secrets.token_hex(4)}"
-    probe = functools.partial(probe_detached_sleeper, token)
+    staged = tmp_path / token
+    staged.mkdir()
+    monkeypatch.setenv("TMPDIR", str(staged))
+    monkeypatch.setattr(tempfile, "tempdir", str(staged))
+    return token
+
+
+@NEEDS_QUOTAS
+def test_quota_detached_descendant_reaped(src_tree: Path, token_tmpdir: str) -> None:
+    probe = functools.partial(probe_detached_sleeper, token_tmpdir)
     report = run_bounded(probe, 30.0, snapshot_root=src_tree, contained=True, quotas=True)
     assert report.outcome == AttemptOutcome.PASS
-    _no_survivors(token)
+    assert report.detail == f"sleeper-alive:{token_tmpdir}"
+    _no_survivors(token_tmpdir)
 
 
 @NEEDS_QUOTAS
@@ -166,3 +185,10 @@ def test_hardened_burn_reports_counters(src_tree: Path) -> None:
     assert report.outcome == AttemptOutcome.PASS
     assert report.detail == "burned:4x2s"
     assert "throttled_usec=" in report.resources
+    assert "mem_peak=" in report.resources
+    assert "pids_peak=" in report.resources
+    assert "cpu_usec=" in report.resources
+    assert "teardown=empty-verified" in report.resources
+    parsed = parse_resources(report.resources)
+    assert parsed["mem_peak"] is not None and parsed["mem_peak"] > 0
+    assert parsed["cpu_usec"] is not None and parsed["cpu_usec"] > 0

@@ -5,7 +5,9 @@ descendants die with the namespace on both normal completion and
 init crash, timeouts terminate promptly via the init SIGTERM handler,
 and every abnormal path maps to infrastructure failure, never a
 verdict. Survivor checks scan host command lines for a unique token;
-vacuity is excluded by requiring in-probe proof the sleeper lived.
+vacuity is excluded three ways: the sleeper proves it ran by writing
+handshake bytes a zombie cannot produce, the probe verifies the
+token reached its stage argv, and teardown must leave no token behind.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import functools
 import os
 import secrets
 import shutil
+import tempfile
 import time
 from pathlib import Path
 
@@ -28,6 +31,7 @@ from attest_core.pidns_probes import (
     probe_exit,
     probe_hang,
     probe_pid,
+    probe_sleeper_handshake_negative,
 )
 from attest_spec import AttemptOutcome
 
@@ -67,6 +71,23 @@ def _eventually_no_marker(token: str, timeout: float = 5.0) -> None:
         time.sleep(0.05)
 
 
+@pytest.fixture
+def token_tmpdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Unique-token TMPDIR so the runner family is host-identifiable.
+
+    The worker stage lands under TMPDIR and the stage path rides the
+    runner command line, which every fork descendant inherits. The
+    stdlib tempdir is patched alongside the env var because it caches
+    the default dir; env alone would be silently ignored mid-suite.
+    """
+    token = f"m2sleeper{secrets.token_hex(4)}"
+    staged = tmp_path / token
+    staged.mkdir()
+    monkeypatch.setenv("TMPDIR", str(staged))
+    monkeypatch.setattr(tempfile, "tempdir", str(staged))
+    return token
+
+
 @NEEDS_CONTAINMENT
 def test_worker_runs_as_pidns_init(src_tree: Path) -> None:
     report = run_bounded(probe_pid, 30.0, snapshot_root=src_tree, contained=True)
@@ -75,23 +96,38 @@ def test_worker_runs_as_pidns_init(src_tree: Path) -> None:
 
 
 @NEEDS_CONTAINMENT
-def test_detached_descendant_reaped_on_completion(src_tree: Path) -> None:
-    token = f"m2sleeper{secrets.token_hex(4)}"
-    probe = functools.partial(probe_detached_sleeper, token)
+def test_detached_descendant_reaped_on_completion(src_tree: Path, token_tmpdir: str) -> None:
+    probe = functools.partial(probe_detached_sleeper, token_tmpdir)
     report = run_bounded(probe, 30.0, snapshot_root=src_tree, contained=True)
     assert report.outcome == AttemptOutcome.PASS
-    assert report.detail == f"sleeper-alive:{token}"
-    _eventually_no_marker(token)
+    assert report.detail == f"sleeper-alive:{token_tmpdir}"
+    _eventually_no_marker(token_tmpdir)
 
 
 @NEEDS_CONTAINMENT
-def test_init_crash_kills_descendants(src_tree: Path) -> None:
-    token = f"m2sleeper{secrets.token_hex(4)}"
-    probe = functools.partial(probe_crash_sleeper, token)
+def test_sleeper_rejects_wrong_stage_token(src_tree: Path) -> None:
+    probe = functools.partial(probe_detached_sleeper, f"not-in-argv-{secrets.token_hex(4)}")
+    report = run_bounded(probe, 30.0, snapshot_root=src_tree, contained=True)
+    assert report.outcome == AttemptOutcome.VIOLATION
+    assert report.detail == "ALLOWED:stage-token-missing"
+
+
+@NEEDS_CONTAINMENT
+def test_sleeper_handshake_rejects_silent_child(src_tree: Path) -> None:
+    report = run_bounded(
+        probe_sleeper_handshake_negative, 30.0, snapshot_root=src_tree, contained=True
+    )
+    assert report.outcome == AttemptOutcome.PASS
+    assert report.detail == "handshake-failure-detected"
+
+
+@NEEDS_CONTAINMENT
+def test_init_crash_kills_descendants(src_tree: Path, token_tmpdir: str) -> None:
+    probe = functools.partial(probe_crash_sleeper, token_tmpdir)
     report = run_bounded(probe, 30.0, snapshot_root=src_tree, contained=True)
     assert report.outcome == AttemptOutcome.INFRA_FAILURE
-    assert f"SLEEPER_ALIVE:{token}" in report.detail
-    _eventually_no_marker(token)
+    assert f"SLEEPER_ALIVE:{token_tmpdir}" in report.detail
+    _eventually_no_marker(token_tmpdir)
 
 
 @NEEDS_CONTAINMENT

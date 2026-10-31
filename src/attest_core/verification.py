@@ -5,11 +5,11 @@ re-executes the provided checks once per attempt. It reuses
 :mod:`attest_core.verdicts` for classification and
 :mod:`attest_core.evidence` for records; it duplicates neither.
 
-Limits of the three-attempt policy: attempts run in the same process
-without execution isolation, so the rule catches flaky or
-non-reproducible results but is not a universal guarantee against
-nondeterminism. Untrusted execution stays disabled in this phase (no
-sandbox); only verifier-owned check code runs, never model-provided code.
+Limits of the three-attempt policy: separate worker executions on
+one machine catch flaky results without proving determinism.
+Isolation follows the selected profile (standard shares the host;
+see security-model.md). Only verifier-owned check code runs,
+never model-provided code.
 """
 
 from __future__ import annotations
