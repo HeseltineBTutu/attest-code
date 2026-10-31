@@ -25,11 +25,30 @@ attest = "apps.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# Each package is listed in both layouts: `src/<pkg>` exists when building
+# from the project directory, while `<pkg>` exists when rebuilding the
+# wheel from the sdist (which already rewrote paths to top level). The
+# layouts are mutually exclusive, so exactly one matches per build and
+# the default `uv build` flow yields a complete wheel. (P5-B)
 [tool.hatch.build.targets.wheel]
-packages = ["src/attest_spec", "src/attest_core", "src/apps", "src/examples", "src/integrations"]
+packages = [
+  "src/attest_spec", "attest_spec",
+  "src/attest_core", "attest_core",
+  "src/apps", "apps",
+  "src/examples", "examples",
+  "src/integrations", "integrations",
+  "src/attest_sdk", "attest_sdk",
+]
 
 [tool.hatch.build.targets.sdist]
-packages = ["src/attest_spec", "src/attest_core", "src/apps", "src/examples", "src/integrations"]
+packages = [
+  "src/attest_spec", "attest_spec",
+  "src/attest_core", "attest_core",
+  "src/apps", "apps",
+  "src/examples", "examples",
+  "src/integrations", "integrations",
+  "src/attest_sdk", "attest_sdk",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
