@@ -48,6 +48,7 @@ def test_expected_packages_are_covered() -> None:
         "apps",
         "examples",
         "integrations",
+        "attest_sdk",
     }
 
 

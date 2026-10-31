@@ -44,7 +44,7 @@ from attest_core.sandbox import (
 )
 from attest_core.supervision import WorkerPhase, supervise_worker
 
-EXPECTED_PACKAGES = ("attest_spec", "attest_core", "apps", "examples", "integrations")
+EXPECTED_PACKAGES = ("attest_spec", "attest_core", "apps", "examples", "integrations", "attest_sdk")
 """First-party packages whose origin must be inside the attested tree."""
 
 _DEPENDENCY_DIR_NAMES = frozenset({"site-packages", "dist-packages"})
