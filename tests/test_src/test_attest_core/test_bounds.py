@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from apps.demo_api import CRASH_MARKER
 from attest_core.bounds import run_bounded
 from attest_spec import AttemptOutcome
 from examples.admin_authorization import run_target_attempt
@@ -38,6 +39,13 @@ def test_crashing_worker_is_reported() -> None:
     report = run_bounded(functools.partial(run_target_attempt, "crashing", SCOPE), 30.0)
     assert report.outcome == AttemptOutcome.INFRA_FAILURE
     assert "crashed" in report.detail
+    assert CRASH_MARKER in report.detail
+
+
+def test_hanging_worker_never_emits_crash_marker() -> None:
+    report = run_bounded(functools.partial(run_target_attempt, "hanging", SCOPE), 2.0)
+    assert report.outcome == AttemptOutcome.INFRA_FAILURE
+    assert CRASH_MARKER not in report.detail
 
 
 def test_worker_error_is_reported() -> None:

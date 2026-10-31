@@ -63,7 +63,18 @@ def _hanging_users() -> dict[str, object]:
     return {"users": []}
 
 
+CRASH_MARKER = "CRASH-FIXTURE-ABOUT-TO-EXIT"
+"""Stderr marker proving the crashing endpoint ran before it dies.
+
+Written with an unbuffered fd-level write: ``os._exit`` skips
+stdio flushing, so only ``os.write`` survives to the parent's
+capture. The parent asserts this marker to distinguish the
+intended crash from a silent early exit.
+"""
+
+
 def _crashing_users() -> dict[str, object]:
+    os.write(2, CRASH_MARKER.encode("ascii") + b"\n")
     os._exit(1)
     return {"users": []}
 

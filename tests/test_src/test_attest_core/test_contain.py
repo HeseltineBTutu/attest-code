@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from apps.demo_api import CRASH_MARKER
 from attest_core.bounds import run_bounded
 from attest_core.contain_probes import (
     probe_big_detail,
@@ -161,3 +162,12 @@ def test_real_checks_contained(src_tree: Path) -> None:
     probe = functools.partial(run_target_attempt, "repaired", ("/admin/users", "/admin/settings"))
     report = run_bounded(probe, 120.0, snapshot_root=src_tree, contained=True)
     assert report.outcome == AttemptOutcome.PASS
+
+
+@NEEDS_CONTAINMENT
+def test_crashing_checks_contained_reach_crash(src_tree: Path) -> None:
+    probe = functools.partial(run_target_attempt, "crashing", ("/admin/users", "/admin/settings"))
+    report = run_bounded(probe, 120.0, snapshot_root=src_tree, contained=True)
+    assert report.outcome == AttemptOutcome.INFRA_FAILURE
+    assert "exited 1" in report.detail
+    assert CRASH_MARKER in report.detail
