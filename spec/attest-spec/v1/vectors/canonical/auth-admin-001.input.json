@@ -1,0 +1,18 @@
+{
+  "spec_version": 1,
+  "id": "AUTH-ADMIN-001",
+  "version": 1,
+  "title": "Administrative endpoints require administrator authorization",
+  "requirement": "Every endpoint in the declared administrative scope must reject unauthenticated requests and deny access to authenticated users without the administrator role. An administrator may access endpoints permitted by the defined policy.",
+  "scope": [
+    "/admin/users",
+    "/admin/settings"
+  ],
+  "invariant_type": "security.access-control",
+  "verification_type": "http-auth-probe/1",
+  "parameters": {},
+  "evidence_expectations": {
+    "attempts": 3
+  },
+  "publisher": "attest-code"
+}

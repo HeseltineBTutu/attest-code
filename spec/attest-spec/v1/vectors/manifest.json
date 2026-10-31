@@ -1,0 +1,595 @@
+{
+  "fixtures": [
+    {
+      "expected": {
+        "canonical_bytes": 246,
+        "canonical_file": "canonical/v1-updated.canonical.json",
+        "canonical_sha256": "e8540259285d745709a18e5c358e43550ec303b18943f1569122320ab0b09778",
+        "outcome": "valid"
+      },
+      "id": "v1-updated",
+      "input": "canonical/v1-updated.input.json",
+      "input_bytes": 280,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "canonical_bytes": 39,
+        "canonical_file": "canonical/v2a.canonical.json",
+        "canonical_sha256": "468205c7fc271187ff4ff8a99bf350a6f427f2f0ae5e3ea5f980b5c609c252ef",
+        "outcome": "valid"
+      },
+      "id": "v2a",
+      "input": "canonical/v2a.input.json",
+      "input_bytes": 60,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "canonical_bytes": 39,
+        "canonical_file": "canonical/v2b.canonical.json",
+        "canonical_sha256": "468205c7fc271187ff4ff8a99bf350a6f427f2f0ae5e3ea5f980b5c609c252ef",
+        "outcome": "valid"
+      },
+      "id": "v2b",
+      "input": "canonical/v2b.input.json",
+      "input_bytes": 54,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "canonical_bytes": 99,
+        "canonical_file": "canonical/v3.canonical.json",
+        "canonical_sha256": "91ed9b26589db26baed4b43321ab1382144f9b71923dbed19e1ec8ec6c0ea2ec",
+        "outcome": "valid"
+      },
+      "id": "v3",
+      "input": "canonical/v3.input.json",
+      "input_bytes": 125,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "outcome": "invalid",
+        "reason_class": "non-integer-number"
+      },
+      "id": "v4a",
+      "input": "canonical/v4a.input.json",
+      "input_bytes": 16,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "outcome": "invalid",
+        "reason_class": "non-integer-number"
+      },
+      "id": "v4b",
+      "input": "canonical/v4b.input.json",
+      "input_bytes": 16,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "outcome": "invalid",
+        "reason_class": "integer-out-of-range"
+      },
+      "id": "v4c",
+      "input": "canonical/v4c.input.json",
+      "input_bytes": 23,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "outcome": "invalid",
+        "reason_class": "duplicate-key"
+      },
+      "id": "v5a",
+      "input": "canonical/v5a.input.json",
+      "input_bytes": 16,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "outcome": "invalid",
+        "reason_class": "trailing-data"
+      },
+      "id": "v5b",
+      "input": "canonical/v5b.input.json",
+      "input_bytes": 17,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "outcome": "invalid",
+        "reason_class": "invalid-utf8"
+      },
+      "id": "v5c",
+      "input": "canonical/v5c.input.bytes",
+      "input_bytes": 10,
+      "input_encoding": "raw",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "outcome": "invalid",
+        "reason_class": "non-json-constant"
+      },
+      "id": "v5d",
+      "input": "canonical/v5d.input.json",
+      "input_bytes": 10,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "canonical_bytes": 396,
+        "canonical_file": "canonical/v6.canonical.json",
+        "canonical_sha256": "67c5a5451d9e149c5d84c28646588c441f60753b642dcc1c7909859e3fb7f103",
+        "outcome": "valid"
+      },
+      "id": "v6",
+      "input": "canonical/v6.input.json",
+      "input_bytes": 396,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "canonical_bytes": 577,
+        "canonical_file": "canonical/auth-admin-001.canonical.json",
+        "canonical_sha256": "219bf343a5a6b9e3127b812b7ddf8e917e6ad919674dacbbedfb6f513f92fa54",
+        "outcome": "valid"
+      },
+      "id": "auth-admin-001",
+      "input": "canonical/auth-admin-001.input.json",
+      "input_bytes": 645,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "canonical_bytes": 7,
+        "canonical_file": "canonical/v7a.canonical.json",
+        "canonical_sha256": "015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862",
+        "outcome": "valid"
+      },
+      "id": "v7a",
+      "input": "canonical/v7a.input.json",
+      "input_bytes": 8,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "canonical_bytes": 14,
+        "canonical_file": "canonical/v7b.canonical.json",
+        "canonical_sha256": "3aec7defb6974917f01fb8ad7560ebe1fc433ed0ea1dd45984d6ef8422946e0d",
+        "outcome": "valid"
+      },
+      "id": "v7b",
+      "input": "canonical/v7b.input.json",
+      "input_bytes": 17,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "canonical_bytes": 14,
+        "canonical_file": "canonical/v7c.canonical.json",
+        "canonical_sha256": "4cae71c1c2c502eb1d40dc78567dba9229482c4adccd8a6e53994f27bbdb4265",
+        "outcome": "valid"
+      },
+      "id": "v7c",
+      "input": "canonical/v7c.input.json",
+      "input_bytes": 17,
+      "input_encoding": "utf-8",
+      "kind": "canonical",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "canonical_bytes": 65,
+        "canonical_file": "boundaries/depth32.accept.canonical.json",
+        "canonical_sha256": "9ced31b386b0d187e8fa72325269faa6e058cdcb36639d338ceaf0627c033443",
+        "outcome": "valid"
+      },
+      "id": "depth32-accept",
+      "input": "boundaries/depth32.accept.input.json",
+      "input_bytes": 65,
+      "input_encoding": "utf-8",
+      "kind": "boundary",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "limit": "depth",
+        "outcome": "invalid",
+        "reason_class": "limit-depth"
+      },
+      "id": "depth33-refuse",
+      "input": "boundaries/depth33.refuse.input.json",
+      "kind": "boundary",
+      "note": "max depth 33 exceeds 32; probes lack limit enforcement",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "canonical_bytes": 65544,
+        "canonical_file": "boundaries/str65536.accept.canonical.json",
+        "canonical_sha256": "3835b20f874bac17b2fb2281bd1d668a2d5edf1a75bf9d7132f04408fa620fe2",
+        "outcome": "valid"
+      },
+      "id": "str65536-accept",
+      "input": "boundaries/str65536.accept.input.json",
+      "input_bytes": 65545,
+      "input_encoding": "utf-8",
+      "kind": "boundary",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "limit": "string",
+        "outcome": "invalid",
+        "reason_class": "limit-string"
+      },
+      "id": "str65537-refuse",
+      "input": "boundaries/str65537.refuse.input.json",
+      "kind": "boundary",
+      "note": "65537 scalars exceeds 65536",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "canonical_bytes": 65547,
+        "canonical_file": "boundaries/astral-scalar.accept.canonical.json",
+        "canonical_sha256": "0a5e9487af51f3a22b85ec23a7951f2648b0ef46295f23d2e7daf31f7797a94d",
+        "outcome": "valid"
+      },
+      "id": "astral-scalar-accept",
+      "input": "boundaries/astral-scalar.accept.input.json",
+      "input_bytes": 65556,
+      "input_encoding": "utf-8",
+      "kind": "boundary",
+      "note": "65536 scalars incl one astral char; UTF-16 unit counting must not refuse",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "canonical_bytes": 19379,
+        "canonical_file": "boundaries/entries4096.accept.canonical.json",
+        "canonical_sha256": "8e8f5e04acec8e23637821109c88194cd69c7242fbe6b0c217d0366b1fc8a1d3",
+        "outcome": "valid"
+      },
+      "id": "entries4096-accept",
+      "input": "boundaries/entries4096.accept.input.json",
+      "input_bytes": 19380,
+      "input_encoding": "utf-8",
+      "kind": "boundary",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "limit": "entries",
+        "outcome": "invalid",
+        "reason_class": "limit-entries"
+      },
+      "id": "entries4097-refuse",
+      "input": "boundaries/entries4097.refuse.input.json",
+      "kind": "boundary",
+      "note": "4097 entries exceeds 4096 per container",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "canonical_bytes": 1048576,
+        "canonical_file": "boundaries/source1m.accept.canonical.json",
+        "canonical_sha256": "8d11e2ed7a5c19f1013b7fbb4731be2459882b33b08b49955473d11b78bda9b3",
+        "outcome": "valid"
+      },
+      "id": "source1m-accept",
+      "input": "boundaries/source1m.accept.input.json",
+      "input_bytes": 1048576,
+      "input_encoding": "utf-8",
+      "kind": "boundary",
+      "note": "exactly 1048576 source bytes; all structural limits pass",
+      "probe_checkable": true
+    },
+    {
+      "expected": {
+        "limit": "source",
+        "outcome": "invalid",
+        "reason_class": "limit-source"
+      },
+      "id": "source1m1-refuse",
+      "input": "boundaries/source1m1.refuse.input.json",
+      "kind": "boundary",
+      "note": "1048577 source bytes exceeds 1048576",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "canonical_bytes": 8388608,
+        "canonical_file": "boundaries/out8m.accept.canonical.json",
+        "canonical_sha256": "891f9189dc7b831b1bc01cc853e3c8a23f4094e6532a8be3afb7c746e7e2065e",
+        "outcome": "valid"
+      },
+      "id": "out8m-accept",
+      "input": "boundaries/out8m.accept.input.yaml",
+      "input_bytes": 15898,
+      "input_encoding": "utf-8",
+      "kind": "boundary",
+      "note": "YAML alias expansion; canonical model verified in two languages from expanded bytes (see validation report)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "canonical_bytes": 8388609,
+        "canonical_sha256": "28fffa10b88a20d8bf78de38008a31e46ee6b9230566e17cdfb0455127574b08",
+        "limit": "output",
+        "outcome": "invalid",
+        "reason_class": "limit-output"
+      },
+      "id": "out8m-refuse",
+      "input": "boundaries/out8m.refuse.input.yaml",
+      "input_bytes": 15899,
+      "input_encoding": "utf-8",
+      "kind": "boundary",
+      "note": "YAML alias expansion; canonical model verified in two languages from expanded bytes (see validation report)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "limit": "entries",
+        "outcome": "invalid",
+        "reason_class": "limit-entries"
+      },
+      "id": "entries-bomb-refuse",
+      "input": "boundaries/entries-bomb.refuse.input.yaml",
+      "input_bytes": 20487,
+      "input_encoding": "utf-8",
+      "kind": "boundary",
+      "note": "alias expansion must be bounded before materialization",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "effective_approval": "5e6885e518a7c1370ee65f82c2ba87b09e1b8a37835cbc81ce0317ff69ea6071",
+        "outcome": "eligible-subject-to-lifecycle",
+        "validity": "valid"
+      },
+      "id": "approval-valid",
+      "input": "chains/approval-valid.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "effective_approval": "5e6885e518a7c1370ee65f82c2ba87b09e1b8a37835cbc81ce0317ff69ea6071",
+        "outcome": "eligible-subject-to-lifecycle",
+        "validity": "valid"
+      },
+      "id": "approval-duplicate",
+      "input": "chains/approval-duplicate.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "outcome": "refuse-no-verdict",
+        "reason_class": "fork",
+        "validity": "ambiguous"
+      },
+      "id": "approval-fork",
+      "input": "chains/approval-fork.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "outcome": "refuse-no-verdict",
+        "reason_class": "sequence-gap",
+        "validity": "ambiguous"
+      },
+      "id": "approval-gap",
+      "input": "chains/approval-gap.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "effective_approval": null,
+        "outcome": "refuse-no-approval",
+        "validity": "valid"
+      },
+      "id": "approval-wrong-digest",
+      "input": "chains/approval-wrong-digest.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "effective_approval": null,
+        "outcome": "refuse-no-approval",
+        "validity": "valid"
+      },
+      "id": "approval-revoked",
+      "input": "chains/approval-revoked.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "effective_approval": "cd0815f121453b5320bca2674e1e8b4afa715bb6538cb8767ac17a6143eb27e0",
+        "outcome": "eligible-subject-to-lifecycle",
+        "validity": "valid"
+      },
+      "id": "approval-timestamp-trap",
+      "input": "chains/approval-timestamp-trap.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "effective_approval": "5e6885e518a7c1370ee65f82c2ba87b09e1b8a37835cbc81ce0317ff69ea6071",
+        "outcome": "eligible-subject-to-lifecycle",
+        "reported": [
+          "README.txt"
+        ],
+        "validity": "valid"
+      },
+      "id": "approval-stray",
+      "input": "chains/approval-stray.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "state": "active",
+        "validity": "valid"
+      },
+      "id": "lifecycle-active",
+      "input": "chains/lifecycle-active.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "state": "deprecated",
+        "validity": "valid"
+      },
+      "id": "lifecycle-deprecated",
+      "input": "chains/lifecycle-deprecated.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "outcome": "refuse-no-verdict",
+        "reason_class": "invalid-transition",
+        "validity": "ambiguous"
+      },
+      "id": "lifecycle-invalid-transition",
+      "input": "chains/lifecycle-invalid-transition.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "outcome": "refuse-no-verdict",
+        "reason_class": "directory-mismatch",
+        "validity": "ambiguous"
+      },
+      "id": "lifecycle-transplant",
+      "input": "chains/lifecycle-transplant.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "outcome": "refuse-no-verdict",
+        "reason_class": "misplaced-event",
+        "validity": "ambiguous"
+      },
+      "id": "lifecycle-misplaced",
+      "input": "chains/lifecycle-misplaced.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "state": "revoked",
+        "validity": "valid"
+      },
+      "id": "lifecycle-revoked",
+      "input": "chains/lifecycle-revoked.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "state": "draft",
+        "validity": "valid"
+      },
+      "id": "lifecycle-empty",
+      "input": "chains/lifecycle-empty.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "outcome": "eligible",
+        "validity": "valid"
+      },
+      "id": "joint-eligible",
+      "input": "chains/joint-eligible.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "outcome": "refuse-ineligible",
+        "validity": "valid"
+      },
+      "id": "joint-revoked",
+      "input": "chains/joint-revoked.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    },
+    {
+      "expected": {
+        "outcome": "refuse-ineligible",
+        "validity": "valid"
+      },
+      "id": "joint-draft",
+      "input": "chains/joint-draft.chain.json",
+      "kind": "chain",
+      "note": "evaluated by publication-QA chain checker (single implementation)",
+      "probe_checkable": false
+    }
+  ],
+  "generator": "CPython 3.11.0 unicode-14.0.0",
+  "profile": "attest-canonical-json/v1",
+  "spec": "attest-spec",
+  "spec_version": 1
+}

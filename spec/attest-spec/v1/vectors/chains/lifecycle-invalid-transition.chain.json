@@ -1,0 +1,24 @@
+{
+  "chain_dir": "registry/lifecycle/AUTH-ADMIN-001/1",
+  "expect": {
+    "outcome": "refuse-no-verdict",
+    "reason_class": "invalid-transition",
+    "validity": "ambiguous"
+  },
+  "files": [
+    {
+      "content": {
+        "actor": "Vector Fixture",
+        "event_id": "a98e57542e7ee03fff45afe60de640d116daee2d1eb6bbf4589172868116809a",
+        "event_type": "DEPRECATE",
+        "invariant_id": "AUTH-ADMIN-001",
+        "invariant_version": 1,
+        "prev": null,
+        "seq": 0,
+        "timestamp": "2026-10-31T00:00:00+00:00"
+      },
+      "name": "a98e57542e7ee03fff45afe60de640d116daee2d1eb6bbf4589172868116809a.json"
+    }
+  ],
+  "kind": "lifecycle"
+}

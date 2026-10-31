@@ -1,0 +1,26 @@
+{
+  "chain_dir": "registry/approvals/AUTH-ADMIN-001/1",
+  "expect": {
+    "effective_approval": null,
+    "outcome": "refuse-no-approval",
+    "validity": "valid"
+  },
+  "files": [
+    {
+      "content": {
+        "approver": "Vector Fixture",
+        "event_id": "d2c78410fa91b48b9cd47fec534cf393faf0aba9794fd686ec499a52868e94d5",
+        "event_type": "APPROVE",
+        "invariant_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+        "invariant_id": "AUTH-ADMIN-001",
+        "invariant_version": 1,
+        "method": "cli-review",
+        "prev": null,
+        "seq": 0,
+        "timestamp": "2026-10-31T00:00:00+00:00"
+      },
+      "name": "d2c78410fa91b48b9cd47fec534cf393faf0aba9794fd686ec499a52868e94d5.json"
+    }
+  ],
+  "kind": "approval"
+}

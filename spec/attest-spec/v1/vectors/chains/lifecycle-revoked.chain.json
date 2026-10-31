@@ -1,0 +1,36 @@
+{
+  "chain_dir": "registry/lifecycle/AUTH-ADMIN-001/1",
+  "expect": {
+    "state": "revoked",
+    "validity": "valid"
+  },
+  "files": [
+    {
+      "content": {
+        "actor": "Vector Fixture",
+        "event_id": "2b2f0b15eb86c5fe5b22cc000ffeaae5beab37a8decabdfc1e17db79acad7e08",
+        "event_type": "ACTIVATE",
+        "invariant_id": "AUTH-ADMIN-001",
+        "invariant_version": 1,
+        "prev": null,
+        "seq": 0,
+        "timestamp": "2026-10-31T00:00:00+00:00"
+      },
+      "name": "2b2f0b15eb86c5fe5b22cc000ffeaae5beab37a8decabdfc1e17db79acad7e08.json"
+    },
+    {
+      "content": {
+        "actor": "Vector Fixture",
+        "event_id": "e8c7ac37e2fb9ce717824b10b479aca910f9b11c597dea765a7c52c985ac6c22",
+        "event_type": "REVOKE_INVARIANT",
+        "invariant_id": "AUTH-ADMIN-001",
+        "invariant_version": 1,
+        "prev": "2b2f0b15eb86c5fe5b22cc000ffeaae5beab37a8decabdfc1e17db79acad7e08",
+        "seq": 1,
+        "timestamp": "2026-10-31T00:00:00+00:00"
+      },
+      "name": "e8c7ac37e2fb9ce717824b10b479aca910f9b11c597dea765a7c52c985ac6c22.json"
+    }
+  ],
+  "kind": "lifecycle"
+}

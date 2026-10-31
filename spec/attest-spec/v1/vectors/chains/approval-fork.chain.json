@@ -1,0 +1,59 @@
+{
+  "chain_dir": "registry/approvals/AUTH-ADMIN-001/1",
+  "expect": {
+    "outcome": "refuse-no-verdict",
+    "reason_class": "fork",
+    "validity": "ambiguous"
+  },
+  "files": [
+    {
+      "content": {
+        "approver": "Vector Fixture",
+        "approver_id": "mailto:fixture@example.test",
+        "event_id": "5e6885e518a7c1370ee65f82c2ba87b09e1b8a37835cbc81ce0317ff69ea6071",
+        "event_type": "APPROVE",
+        "invariant_digest": "686892e3f409735c7538e315f29727f3d3e2e2860df7eb979d8cc17bf5fdabf8",
+        "invariant_id": "AUTH-ADMIN-001",
+        "invariant_version": 1,
+        "method": "cli-review",
+        "prev": null,
+        "seq": 0,
+        "timestamp": "2026-10-31T00:00:00+00:00"
+      },
+      "name": "5e6885e518a7c1370ee65f82c2ba87b09e1b8a37835cbc81ce0317ff69ea6071.json"
+    },
+    {
+      "content": {
+        "approver": "Vector Fixture",
+        "event_id": "d553c44eef2de09462132d4e54c7b74b13f04c24816644f212164aabf64904ba",
+        "event_type": "NOTE",
+        "invariant_digest": "686892e3f409735c7538e315f29727f3d3e2e2860df7eb979d8cc17bf5fdabf8",
+        "invariant_id": "AUTH-ADMIN-001",
+        "invariant_version": 1,
+        "method": "cli-review",
+        "prev": "5e6885e518a7c1370ee65f82c2ba87b09e1b8a37835cbc81ce0317ff69ea6071",
+        "reason": "branch one",
+        "seq": 1,
+        "timestamp": "2026-10-31T00:00:00+00:00"
+      },
+      "name": "d553c44eef2de09462132d4e54c7b74b13f04c24816644f212164aabf64904ba.json"
+    },
+    {
+      "content": {
+        "approver": "Vector Fixture",
+        "event_id": "21bd579499523727a2f7ca72041702d2717b83ac9d9f8b110f2fe1a2162d5339",
+        "event_type": "NOTE",
+        "invariant_digest": "686892e3f409735c7538e315f29727f3d3e2e2860df7eb979d8cc17bf5fdabf8",
+        "invariant_id": "AUTH-ADMIN-001",
+        "invariant_version": 1,
+        "method": "cli-review",
+        "prev": "5e6885e518a7c1370ee65f82c2ba87b09e1b8a37835cbc81ce0317ff69ea6071",
+        "reason": "branch two",
+        "seq": 1,
+        "timestamp": "2026-10-31T00:00:00+00:00"
+      },
+      "name": "21bd579499523727a2f7ca72041702d2717b83ac9d9f8b110f2fe1a2162d5339.json"
+    }
+  ],
+  "kind": "approval"
+}

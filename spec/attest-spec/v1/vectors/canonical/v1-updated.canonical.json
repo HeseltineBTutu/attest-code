@@ -1,0 +1,1 @@
+{"id":"AUTH-ADMIN-001","invariant_type":"security.access-control","requirement":"Every endpoint must authorize.","scope":["/admin/users","/admin/settings"],"spec_version":1,"title":"Admin auth","verification_type":"http-auth-probe/1","version":1}

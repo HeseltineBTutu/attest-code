@@ -1,0 +1,23 @@
+{
+  "chain_dir": "registry/lifecycle/AUTH-ADMIN-001/1",
+  "expect": {
+    "state": "active",
+    "validity": "valid"
+  },
+  "files": [
+    {
+      "content": {
+        "actor": "Vector Fixture",
+        "event_id": "2b2f0b15eb86c5fe5b22cc000ffeaae5beab37a8decabdfc1e17db79acad7e08",
+        "event_type": "ACTIVATE",
+        "invariant_id": "AUTH-ADMIN-001",
+        "invariant_version": 1,
+        "prev": null,
+        "seq": 0,
+        "timestamp": "2026-10-31T00:00:00+00:00"
+      },
+      "name": "2b2f0b15eb86c5fe5b22cc000ffeaae5beab37a8decabdfc1e17db79acad7e08.json"
+    }
+  ],
+  "kind": "lifecycle"
+}

@@ -1,0 +1,9 @@
+{
+  "chain_dir": "registry/lifecycle/AUTH-ADMIN-001/1",
+  "expect": {
+    "state": "draft",
+    "validity": "valid"
+  },
+  "files": [],
+  "kind": "lifecycle"
+}

@@ -1,0 +1,18 @@
+{
+  "chain_dir": "registry:@tip",
+  "expect": {
+    "outcome": "refuse-ineligible",
+    "validity": "valid"
+  },
+  "files": [
+    {
+      "content": "approval-valid",
+      "name": "approval"
+    },
+    {
+      "content": "lifecycle-empty",
+      "name": "lifecycle"
+    }
+  ],
+  "kind": "joint"
+}

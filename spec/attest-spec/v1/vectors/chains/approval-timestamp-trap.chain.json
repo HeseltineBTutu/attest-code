@@ -1,0 +1,41 @@
+{
+  "chain_dir": "registry/approvals/AUTH-ADMIN-001/1",
+  "expect": {
+    "effective_approval": "cd0815f121453b5320bca2674e1e8b4afa715bb6538cb8767ac17a6143eb27e0",
+    "outcome": "eligible-subject-to-lifecycle",
+    "validity": "valid"
+  },
+  "files": [
+    {
+      "content": {
+        "approver": "Vector Fixture",
+        "event_id": "cd0815f121453b5320bca2674e1e8b4afa715bb6538cb8767ac17a6143eb27e0",
+        "event_type": "APPROVE",
+        "invariant_digest": "686892e3f409735c7538e315f29727f3d3e2e2860df7eb979d8cc17bf5fdabf8",
+        "invariant_id": "AUTH-ADMIN-001",
+        "invariant_version": 1,
+        "method": "cli-review",
+        "prev": null,
+        "seq": 0,
+        "timestamp": "2026-10-31T12:00:00+00:00"
+      },
+      "name": "cd0815f121453b5320bca2674e1e8b4afa715bb6538cb8767ac17a6143eb27e0.json"
+    },
+    {
+      "content": {
+        "approver": "Vector Fixture",
+        "event_id": "d82c343d42899354edb1403429cc73d1963449ccb8bd76b83f1d829181e401da",
+        "event_type": "NOTE",
+        "invariant_digest": "686892e3f409735c7538e315f29727f3d3e2e2860df7eb979d8cc17bf5fdabf8",
+        "invariant_id": "AUTH-ADMIN-001",
+        "invariant_version": 1,
+        "method": "cli-review",
+        "prev": "cd0815f121453b5320bca2674e1e8b4afa715bb6538cb8767ac17a6143eb27e0",
+        "seq": 1,
+        "timestamp": "2026-10-31T00:00:00+00:00"
+      },
+      "name": "d82c343d42899354edb1403429cc73d1963449ccb8bd76b83f1d829181e401da.json"
+    }
+  ],
+  "kind": "approval"
+}
