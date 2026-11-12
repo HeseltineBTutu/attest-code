@@ -26,6 +26,7 @@ from attest_core.evidence import (
     sha256_hex,
 )
 from attest_core.invariants import invariant_content_digest, is_approval_valid
+from attest_core.timing import TimingCollector
 from attest_core.verdicts import REQUIRED_ATTEMPTS, VerificationAttempt, classify_with_reason
 from attest_spec import ApprovalRecord, AttemptOutcome, Invariant, Verdict
 
@@ -81,13 +82,15 @@ def run_verification(
     revision: str,
     settings: Mapping[str, str],
     run_checks: Callable[[], AttemptReport],
+    timer: TimingCollector | None = None,
 ) -> VerificationReport:
     """Verify a target against one approved invariant.
 
     The approval must bind to the exact invariant content; otherwise this
     raises instead of producing any verdict. PASSED here means verified
     under the policy (clean attempts with scope coverage); the Phase 1
-    verdict names are preserved unchanged.
+    verdict names are preserved unchanged. An optional timer records one
+    observational span per attempt without influencing classification.
     """
     if not is_approval_valid(invariant, approval):
         raise VerificationError("approval does not match invariant content")
@@ -95,17 +98,25 @@ def run_verification(
     evidence: list[EvidenceRecord] = []
     attempts: list[VerificationAttempt] = []
     for attempt_no in range(1, REQUIRED_ATTEMPTS + 1):
+        if timer is not None:
+            timer.try_start_attempt(attempt_no)
         try:
             report = run_checks()
             outcome = report.outcome
             checks = tuple(report.checks)
             detail = report.detail
             resources = report.resources
+            if timer is not None:
+                timer.try_stop_attempt(attempt_no, outcome=outcome, detail=detail)
         except Exception as exc:
             outcome = AttemptOutcome.INFRA_FAILURE
             checks = ()
             detail = f"attempt raised {type(exc).__name__}: {exc}"
             resources = ""
+            if timer is not None:
+                timer.try_stop_attempt(
+                    attempt_no, outcome=AttemptOutcome.INFRA_FAILURE, detail=detail
+                )
         for check in checks:
             evidence.append(
                 EvidenceRecord(

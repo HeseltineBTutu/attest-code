@@ -19,6 +19,7 @@ from typing import NoReturn
 from apps.approvals import DEFAULT_APPROVALS_FILE
 from apps.review import ReviewStatus, run_review
 from apps.verify import run_verify
+from attest_core.timing import TimingCollector, TimingError
 from attest_spec import Verdict
 from examples.admin_authorization import TARGETS
 
@@ -79,6 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
         "(+ namespaces/filesystem), hardened (+ quotas/seccomp where "
         "the host supports them; refused otherwise)",
     )
+    verify.add_argument(
+        "--timing-log",
+        type=Path,
+        default=None,
+        help="write observational per-attempt/total elapsed-time JSONL "
+        "to PATH (refuses to overwrite; never affects the report)",
+    )
     return parser
 
 
@@ -93,6 +101,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 invariant_id=args.id,
             )
             return _REVIEW_EXITS[status]
+        timer = (
+            TimingCollector(profile=args.exec, timeout_seconds=args.timeout)
+            if args.timing_log is not None
+            else None
+        )
         verdict = run_verify(
             invariant_file=args.invariant_file,
             approvals_file=args.approvals,
@@ -103,7 +116,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout_seconds=args.timeout,
             output_format=args.format,
             exec_profile=args.exec,
+            timer=timer,
         )
+        if timer is not None:
+            # Total already stopped inside run_verify: serialization stays out.
+            try:
+                timer.write_jsonl(args.timing_log)
+            except (OSError, TimingError) as exc:
+                print(f"attest: timing log failed: {exc}", file=sys.stderr)
         return _VERDICT_EXITS[verdict]
     except Exception as exc:
         print(f"attest: error: {exc}", file=sys.stderr)

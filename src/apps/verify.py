@@ -39,6 +39,7 @@ from attest_core.runtime import (
     collect_runtime_settings,
 )
 from attest_core.snapshot import Snapshot, SnapshotError, build_snapshot, verify_snapshot
+from attest_core.timing import TimingCollector
 from attest_core.verdicts import REQUIRED_ATTEMPTS
 from attest_core.verification import AttemptReport, VerificationReport, run_verification
 from attest_spec import Invariant, Verdict
@@ -125,8 +126,11 @@ def run_verify(
     output_format: str,
     stdout: TextIO | None = None,
     exec_profile: str = "standard",
+    timer: TimingCollector | None = None,
 ) -> Verdict:
     """Verify the demo target; return the authoritative verdict."""
+    if timer is not None:
+        timer.try_start_total()
     stdout = sys.stdout if stdout is None else stdout
     if timeout_seconds <= 0:
         raise VerifyError("timeout must be positive")
@@ -196,27 +200,21 @@ def run_verify(
             profile=resolved.requested,
         ),
         run_checks=run_checks,
+        timer=timer,
     )
     snapshot_changed = fingerprint(root) != before
     if snapshot_changed:
         report = apply_snapshot_override(report, invariant)
     coverage = scope_coverage(report.evidence, REQUIRED_ATTEMPTS)
-    if output_format == "json":
-        render_json(
-            report,
-            invariant=invariant,
-            coverage=coverage,
-            snapshot_changed=snapshot_changed,
-            stdout=stdout,
-            exec_info=exec_report(resolved, [attempt.outcome for attempt in report.attempts]),
-        )
-    else:
-        render_text(
-            report,
-            invariant=invariant,
-            coverage=coverage,
-            snapshot_changed=snapshot_changed,
-            stdout=stdout,
-            exec_info=exec_report(resolved, [attempt.outcome for attempt in report.attempts]),
-        )
+    render = render_json if output_format == "json" else render_text
+    render(
+        report,
+        invariant=invariant,
+        coverage=coverage,
+        snapshot_changed=snapshot_changed,
+        stdout=stdout,
+        exec_info=exec_report(resolved, [attempt.outcome for attempt in report.attempts]),
+    )
+    if timer is not None:
+        timer.try_stop_total()
     return report.verdict
