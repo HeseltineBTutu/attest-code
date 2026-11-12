@@ -11,14 +11,17 @@ Exit-code contract:
 from __future__ import annotations
 
 import argparse
+import json
+import shlex
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from apps.approvals import DEFAULT_APPROVALS_FILE
 from apps.review import ReviewStatus, run_review
 from apps.verify import run_verify
+from attest_core.bench_env import collect_environment
 from attest_core.timing import TimingCollector, TimingError
 from attest_spec import Verdict
 from examples.admin_authorization import TARGETS
@@ -87,6 +90,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="write observational per-attempt/total elapsed-time JSONL "
         "to PATH (refuses to overwrite; never affects the report)",
     )
+    verify.add_argument(
+        "--env-log",
+        type=Path,
+        default=None,
+        help="write observational benchmark environment JSON "
+        "to PATH (refuses to overwrite; never affects the report)",
+    )
     return parser
 
 
@@ -106,6 +116,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.timing_log is not None
             else None
         )
+        environment: dict[str, Any] | None = None
+        if args.env_log is not None:
+            raw = list(argv) if argv is not None else sys.argv[1:]
+            try:
+                environment = collect_environment(
+                    profile=args.exec, command="attest " + shlex.join(raw)
+                )
+            except Exception as exc:
+                print(f"attest: env log failed: {exc}", file=sys.stderr)
         verdict = run_verify(
             invariant_file=args.invariant_file,
             approvals_file=args.approvals,
@@ -124,6 +143,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 timer.write_jsonl(args.timing_log)
             except (OSError, TimingError) as exc:
                 print(f"attest: timing log failed: {exc}", file=sys.stderr)
+        if environment is not None:
+            try:
+                with open(args.env_log, "x", encoding="utf-8") as handle:
+                    handle.write(json.dumps(environment, indent=2, sort_keys=True) + "\n")
+            except OSError as exc:
+                print(f"attest: env log failed: {exc}", file=sys.stderr)
         return _VERDICT_EXITS[verdict]
     except Exception as exc:
         print(f"attest: error: {exc}", file=sys.stderr)
