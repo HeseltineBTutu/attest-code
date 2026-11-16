@@ -1,11 +1,13 @@
-"""Operator CLI: `attest review` and `attest verify` (argparse, no framework).
+"""Operator CLI: `attest review`, `attest verify`, `attest validate`.
 
 Exit-code contract:
-- 0: review approved (or already approved); verification PASSED.
+- 0: review approved (or already approved); verification PASSED;
+  F3 validation VALID.
 - 1: verification FAILED.
 - 2: verification INCONCLUSIVE.
 - 3: usage errors, declined review, missing/invalid approval, unsafe source
-  snapshot, or any other execution error.
+  snapshot, F3 validation not VALID (INVALID, INCOMPLETE, refused, or
+  infrastructure failure), output errors, or any other execution error.
 """
 
 from __future__ import annotations
@@ -21,7 +23,11 @@ from typing import Any, NoReturn
 from apps.approvals import DEFAULT_APPROVALS_FILE
 from apps.review import ReviewStatus, run_review
 from apps.verify import run_verify
+from attest_core import f3_fields as ff
 from attest_core.bench_env import collect_environment
+from attest_core.f3_emit import emit_report
+from attest_core.f3_report import STATUS_VALIDATED
+from attest_core.f3_validate import validate_package
 from attest_core.timing import TimingCollector, TimingError
 from attest_spec import Verdict
 from examples.admin_authorization import TARGETS
@@ -51,6 +57,13 @@ class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
         self.print_usage(sys.stderr)
         self.exit(EXIT_ERROR, f"{self.prog}: error: {message}\n")
+
+
+def _digest_hex(value: str) -> str:
+    """argparse type for held-manifest digests (usage error otherwise)."""
+    if ff.DIGEST64_RE.fullmatch(value) is None:
+        raise argparse.ArgumentTypeError(f"must be SHA-256 hex: {value!r}")
+    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,6 +110,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="write observational benchmark environment JSON "
         "to PATH (refuses to overwrite; never affects the report)",
     )
+    validate = sub.add_parser("validate", help="validate an F3 measurement-record package")
+    validate.add_argument(
+        "package",
+        type=Path,
+        help="campaign package root to validate (directory containing manifest.json)",
+    )
+    validate.add_argument(
+        "--manifest-digest",
+        type=_digest_hex,
+        default=None,
+        metavar="HEX",
+        help="trusted manifest digest for held-manifest verification",
+    )
     return parser
 
 
@@ -111,6 +137,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 invariant_id=args.id,
             )
             return _REVIEW_EXITS[status]
+        if args.command == "validate":
+            report = validate_package(args.package, manifest_digest=args.manifest_digest)
+            emit_report(report)
+            if report.status == STATUS_VALIDATED and report.severity == "VALID":
+                return EXIT_OK
+            return EXIT_ERROR
         timer = (
             TimingCollector(profile=args.exec, timeout_seconds=args.timeout)
             if args.timing_log is not None
