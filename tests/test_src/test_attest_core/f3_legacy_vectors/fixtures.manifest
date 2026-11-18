@@ -1,0 +1,109 @@
+{
+  "fixtures": [
+    {
+      "bytes": 1596,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/crashing-1.env.json",
+      "sha256": "b5da97209d139b0a69e8ef4ac07dd5a485d528b964d75be6f8d71c566b5e2268",
+      "source": "measurements/s3-m5-1-campaign-04/crashing-1.env.json"
+    },
+    {
+      "bytes": 2625,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/crashing-1.json",
+      "sha256": "47ebd322a3c5953ae693c6d72dc3534f45b03a8cb2a457b825a3a7a82639f128",
+      "source": "measurements/s3-m5-1-campaign-04/crashing-1.json"
+    },
+    {
+      "bytes": 0,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/crashing-1.stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": "measurements/s3-m5-1-campaign-04/crashing-1.stderr.log"
+    },
+    {
+      "bytes": 581,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/crashing-1.timing.jsonl",
+      "sha256": "c3543a7debbe40f4d920a13b8706fbb6ff92d28e8657bf2372eb76e784dca6b2",
+      "source": "measurements/s3-m5-1-campaign-04/crashing-1.timing.jsonl"
+    },
+    {
+      "bytes": 45,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/hanging-1.stderr.log",
+      "sha256": "e8bdc9dad1f06bea91ccc391759e5b2199a726cfc427eabca74c3545ab779637",
+      "source": "measurements/s3-m5-1-campaign-04/hanging-1.stderr.log"
+    },
+    {
+      "bytes": 1596,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/repaired-1.env.json",
+      "sha256": "f5cc2ca54f32c21e01273e2fc6a7443ad5e07b04a90e2db45b212b359bff94bd",
+      "source": "measurements/s3-m5-1-campaign-04/repaired-1.env.json"
+    },
+    {
+      "bytes": 3872,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/repaired-1.json",
+      "sha256": "688650d8085a41609367e4a7e3cb6a555342940b8e774d3f0b77876b5b4b1016",
+      "source": "measurements/s3-m5-1-campaign-04/repaired-1.json"
+    },
+    {
+      "bytes": 0,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/repaired-1.stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": "measurements/s3-m5-1-campaign-04/repaired-1.stderr.log"
+    },
+    {
+      "bytes": 554,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/repaired-1.timing.jsonl",
+      "sha256": "0b5a86303a9a54dc1a5f6672ebad07fcf1edf853b72976255ca98e5ac8765626",
+      "source": "measurements/s3-m5-1-campaign-04/repaired-1.timing.jsonl"
+    },
+    {
+      "bytes": 1602,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/vulnerable-1.env.json",
+      "sha256": "286550444d453ed0907d8fffc27ebde235521bfa595b40c25bbce03324b21d82",
+      "source": "measurements/s3-m5-1-campaign-04/vulnerable-1.env.json"
+    },
+    {
+      "bytes": 3872,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/vulnerable-1.json",
+      "sha256": "439d4d55f4dc12e3064b310ba0e2cf958b179980ecacae817d67b5f9640d2e36",
+      "source": "measurements/s3-m5-1-campaign-04/vulnerable-1.json"
+    },
+    {
+      "bytes": 0,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/vulnerable-1.stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": "measurements/s3-m5-1-campaign-04/vulnerable-1.stderr.log"
+    },
+    {
+      "bytes": 569,
+      "origin": "campaign-04-test-vector",
+      "path": "campaign04/vulnerable-1.timing.jsonl",
+      "sha256": "73db749238d480fbded752ed20e3d2b480b28eaae25fb0e2c7cd1633d9c45b73",
+      "source": "measurements/s3-m5-1-campaign-04/vulnerable-1.timing.jsonl"
+    },
+    {
+      "bytes": 219,
+      "origin": "synthetic/mini-timing",
+      "path": "synthetic/mini-timing.jsonl",
+      "sha256": "cf56fa58f6eb11e97b16a960576638dbe2b9c55d8fcce4558dfeee682166e096",
+      "source": "authored-for-p10-acceptance"
+    },
+    {
+      "bytes": 201,
+      "origin": "synthetic/summary-1",
+      "path": "synthetic/summary-1.json",
+      "sha256": "00bf3711226b65911155d2817a05173c2bea0d25e2ef165dabd4a32202ebda52",
+      "source": "authored-for-p10-acceptance"
+    }
+  ]
+}

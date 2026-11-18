@@ -1,0 +1,86 @@
+{
+  "attempts": [
+    {
+      "detail": "4 sub-check(s) failed",
+      "evidence_hash": "536c1bb6cb4024dc89ca76e3224b56e08571d70b2455bd2e9d5e94f2d3dc1c4f",
+      "index": 1,
+      "outcome": "VIOLATION",
+      "resources": "[resources] oom=0 oom_kill=0 pids_max=0 throttled_usec=0 mem_peak=66375680 pids_peak=6 cpu_usec=3522731 teardown=empty-verified"
+    },
+    {
+      "detail": "4 sub-check(s) failed",
+      "evidence_hash": "60177ff52df2e1cf40395fbb6e5744e67ee95872a588cca7a0ce1c02dd5e6f68",
+      "index": 2,
+      "outcome": "VIOLATION",
+      "resources": "[resources] oom=0 oom_kill=0 pids_max=0 throttled_usec=0 mem_peak=66404352 pids_peak=6 cpu_usec=3438575 teardown=empty-verified"
+    },
+    {
+      "detail": "4 sub-check(s) failed",
+      "evidence_hash": "36e3de0244d577b7ff5f192627cfe36a9d61f75c74d9833653ed342e7c91a787",
+      "index": 3,
+      "outcome": "VIOLATION",
+      "resources": "[resources] oom=0 oom_kill=0 pids_max=0 throttled_usec=0 mem_peak=66424832 pids_peak=6 cpu_usec=3438850 teardown=empty-verified"
+    }
+  ],
+  "attestation_digest": "e61692098b2a332004333553b8e2d388cbe69e5bfb910d7fe8715d021c40f53c",
+  "command": "verify",
+  "config_digest": "8d479a37da4e7c21d93b8a0cb03165e9fd2645ca72612d1799aa6b7c2cd9a7bb",
+  "evidence_hashes": [
+    "3c6d2350d77033ef3a165cf152526c9ff20983a1d5c812755c69fe1349fb56ac",
+    "8f9d3d08d8764adc91e19bc35c06523c9d3850980c57809c934ea1fab68deb97",
+    "297b9bda51b0c411cbad6cc9e8f4577eebefbdda548c5cfc1b78588d9fcb9842",
+    "c15d71440545dd77b27d84aff163c704980ab2f916b7146748dc192ea4411db2",
+    "9bc5694802515b08366230d82e0dfd29717c2485b8014a9eb2ab9dbc18a5ea99",
+    "ba76fbce224a1f685a769fb5691b319897497434f6c8d53c17778da7e3efc995",
+    "9556efe0579079a70e35d4ebee640b81820a28dbf88828218ef60f5224bb54d5",
+    "536c1bb6cb4024dc89ca76e3224b56e08571d70b2455bd2e9d5e94f2d3dc1c4f",
+    "b63013371aa0215f047de8983f527dd8e5a6307b08efba2183cae8e0490bad4b",
+    "2a98bb539f12a1febf57c79ab5105624f11504f2e6b0decc23a883791d65df3f",
+    "9774b3cb7b4d5649b7b2cdbd9ef3e0187f6d61de854607b50bb6bd3b5c268928",
+    "7370bfeb377d240a6b9681c56da57c18fbbeb6232c2d782e5c28e94c4dadab56",
+    "0563e18768a4861dc6d2bed7731b3881463f578a6493b2149317d3da9281dcd9",
+    "0a288642b606df63a6a046b981d98901baa67c2ce0a8427369d406e4a43109ac",
+    "28008de262faf2b0bb2ae577132af68fcba0202e68f2d15eb7b7b10fc8341b51",
+    "60177ff52df2e1cf40395fbb6e5744e67ee95872a588cca7a0ce1c02dd5e6f68",
+    "4971ea875ef7b5b14ddb8c883a2874e7f875436545d99b8a98e4b5b003fb7dad",
+    "7568d40111f711cbe094630ebdf561422a8270d409c28707a40dde51eba7fd6b",
+    "0d29b1f9f0da49aab2c964cd88f4f576a1ddccf3dba2a07e99084e5f6ea037ae",
+    "747812def9e9730a6807264aa9ca3bdc230065a1eea678f4756e241530e65790",
+    "2f898ea7ad327c0334019e27c5aa7a05b1e024890dfa7807efa9080134ab73ee",
+    "8a0f038c737a29bc58c34c4ad8e8330a5577ea1913fa6cbffadaae45f273612b",
+    "87bb2077b10be8e345eca0aaee48fb820c526f46e322e2615422e7ad7638688b",
+    "36e3de0244d577b7ff5f192627cfe36a9d61f75c74d9833653ed342e7c91a787"
+  ],
+  "execution": {
+    "actual": {
+      "contained": true,
+      "quotas": true,
+      "seccomp": true
+    },
+    "capabilities": {
+      "containment": true,
+      "quotas": true,
+      "seccomp": true
+    },
+    "enforcement": "verified",
+    "requested": "hardened",
+    "selected": "hardened"
+  },
+  "invariant": {
+    "content_digest": "67c5a5451d9e149c5d84c28646588c441f60753b642dcc1c7909859e3fb7f103",
+    "id": "AUTH-ADMIN-001",
+    "version": 1
+  },
+  "reason": "checked 3 attempt(s); policy requires 3 independent attempts under the same revision and configuration with evidence: reproducible violation",
+  "revision": "62155a44f493ae393032a144fa290496b8a5bf76",
+  "schema_version": 1,
+  "scope": {
+    "coverage": "established",
+    "declared": [
+      "/admin/settings",
+      "/admin/users"
+    ]
+  },
+  "snapshot_changed": false,
+  "verdict": "FAILED"
+}

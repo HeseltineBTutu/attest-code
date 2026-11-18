@@ -1,0 +1,4 @@
+{"record_type": "attempt", "attempt": 1, "elapsed_s": "8.132785617", "outcome": "PASS", "censored": false, "profile": "hardened", "timeout_s": "60.000000000"}
+{"record_type": "attempt", "attempt": 2, "elapsed_s": "8.615588320", "outcome": "PASS", "censored": false, "profile": "hardened", "timeout_s": "60.000000000"}
+{"record_type": "attempt", "attempt": 3, "elapsed_s": "9.189420439", "outcome": "PASS", "censored": false, "profile": "hardened", "timeout_s": "60.000000000"}
+{"record_type": "total", "elapsed_s": "32.975525225", "profile": "hardened"}

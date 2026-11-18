@@ -1,0 +1,65 @@
+{
+  "attempts": [
+    {
+      "detail": "worker error: contained execution failed: contained runner exited 1: CRASH-FIXTURE-ABOUT-TO-EXIT\n",
+      "evidence_hash": "0d694192f487734b415cba675356dce27598d7f26ed689c6a5c6c336090e1580",
+      "index": 1,
+      "outcome": "INFRA_FAILURE",
+      "resources": "[resources] oom=0 oom_kill=0 pids_max=0 throttled_usec=0 mem_peak=66527232 pids_peak=6 cpu_usec=3695556 teardown=empty-verified"
+    },
+    {
+      "detail": "worker error: contained execution failed: contained runner exited 1: CRASH-FIXTURE-ABOUT-TO-EXIT\n",
+      "evidence_hash": "574288bc3dd6d7836ea8d0d41866099eaa353354ba28695e58666433c58d08e6",
+      "index": 2,
+      "outcome": "INFRA_FAILURE",
+      "resources": "[resources] oom=0 oom_kill=0 pids_max=0 throttled_usec=0 mem_peak=66166784 pids_peak=6 cpu_usec=3525421 teardown=empty-verified"
+    },
+    {
+      "detail": "worker error: contained execution failed: contained runner exited 1: CRASH-FIXTURE-ABOUT-TO-EXIT\n",
+      "evidence_hash": "30c2b544364af290c2a8dde00a1504c830ea9ba052ff502c925b85654efd3ab6",
+      "index": 3,
+      "outcome": "INFRA_FAILURE",
+      "resources": "[resources] oom=0 oom_kill=0 pids_max=0 throttled_usec=0 mem_peak=66719744 pids_peak=6 cpu_usec=3441628 teardown=empty-verified"
+    }
+  ],
+  "attestation_digest": "68dbe46136855e15f3274185a1a232925d553fc1dba1e7679d4bb4510ddfd2e0",
+  "command": "verify",
+  "config_digest": "74b28f80c7f5fdc0f7fafdf159511bad8d395e56199bed2ec0edc7bc96ad59fe",
+  "evidence_hashes": [
+    "0d694192f487734b415cba675356dce27598d7f26ed689c6a5c6c336090e1580",
+    "574288bc3dd6d7836ea8d0d41866099eaa353354ba28695e58666433c58d08e6",
+    "30c2b544364af290c2a8dde00a1504c830ea9ba052ff502c925b85654efd3ab6"
+  ],
+  "execution": {
+    "actual": {
+      "contained": true,
+      "quotas": true,
+      "seccomp": true
+    },
+    "capabilities": {
+      "containment": true,
+      "quotas": true,
+      "seccomp": true
+    },
+    "enforcement": "requested-unverified",
+    "requested": "hardened",
+    "selected": "hardened"
+  },
+  "invariant": {
+    "content_digest": "67c5a5451d9e149c5d84c28646588c441f60753b642dcc1c7909859e3fb7f103",
+    "id": "AUTH-ADMIN-001",
+    "version": 1
+  },
+  "reason": "checked 3 attempt(s); policy requires 3 independent attempts under the same revision and configuration with evidence: mixed or infrastructure failure",
+  "revision": "62155a44f493ae393032a144fa290496b8a5bf76",
+  "schema_version": 1,
+  "scope": {
+    "coverage": "failed",
+    "declared": [
+      "/admin/settings",
+      "/admin/users"
+    ]
+  },
+  "snapshot_changed": false,
+  "verdict": "INCONCLUSIVE"
+}

@@ -1,0 +1,4 @@
+{"record_type": "attempt", "attempt": 1, "elapsed_s": "7.092474207", "outcome": "VIOLATION", "censored": false, "profile": "hardened", "timeout_s": "60.000000000"}
+{"record_type": "attempt", "attempt": 2, "elapsed_s": "7.087946234", "outcome": "VIOLATION", "censored": false, "profile": "hardened", "timeout_s": "60.000000000"}
+{"record_type": "attempt", "attempt": 3, "elapsed_s": "6.930634630", "outcome": "VIOLATION", "censored": false, "profile": "hardened", "timeout_s": "60.000000000"}
+{"record_type": "total", "elapsed_s": "27.997103969", "profile": "hardened"}
